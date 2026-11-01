@@ -54,7 +54,7 @@ function L.build(state, width, height)
 
  if page=="home" then
   local frames=state.widget_layout or {
-   weather={x=0,y=0,w=46,h=46},photo={x=46,y=0,w=54,h=100},calendar={x=0,y=46,w=46,h=54},timer={x=46,y=0,w=27,h=49},shopping={x=73,y=0,w=27,h=49},
+   weather={x=0,y=0,w=46,h=46},photo={x=46,y=0,w=54,h=100},calendar={x=0,y=46,w=46,h=54},timer={x=0,y=46,w=23,h=54},shopping={x=23,y=46,w=23,h=54},
   }
   local area={x=24,y=102,w=752,h=464}
   local function box(name)
