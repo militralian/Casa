@@ -1,38 +1,42 @@
 # Casa
 
-Una schermata iniziale per Kindle 4 con KOReader: meteo, calendario, foto, appunti e accesso alle ricette. Il progetto include una pagina di configurazione utilizzabile dal telefono sulla rete Wi-Fi locale.
+Casa trasforma un Kindle 4 con KOReader in una piccola schermata domestica a inchiostro elettronico. È pensata per restare aperta in casa e mostrare informazioni utili senza dover usare ogni volta un telefono.
 
-## Funzioni
+## Cosa mostra e cosa permette di fare
 
-- Home a schermo intero con meteo e previsioni.
-- Calendario mensile e cornice fotografica.
-- Configurazione dell’orientamento, della disposizione e delle dimensioni dei riquadri.
-- Caricamento di fotografie dalla rete locale, con riduzione automatica e scarto dei duplicati.
-- Modalità notte e avvio di KOReader all’accensione.
-- Piccoli giochi utilizzabili con i tasti fisici del Kindle.
+- **Meteo:** condizioni attuali, temperatura e previsioni dei giorni successivi, con icone dedicate.
+- **Calendario:** vista mensile con i giorni della settimana e il giorno corrente evidenziato.
+- **Foto:** galleria e cornice digitale a schermo intero, con intervallo tra le immagini configurabile.
+- **Disposizione personalizzabile:** scegli orientamento verticale o orizzontale e sposta o ridimensiona i riquadri meteo, calendario e foto dalla pagina Config.
+- **Comandi dal Kindle:** usa i tasti fisici per passare tra schermata iniziale, foto, meteo e menu.
+- **Configurazione dal telefono o dal computer:** quando Kindle e telefono sono sulla stessa rete Wi‑Fi, la pagina Config permette di inviare foto, regolare la schermata e preparare gli aggiornamenti via Wi‑Fi.
+- **Avvio automatico:** gli script facoltativi in `casa-boot` aiutano a lanciare KOReader e Casa all’avvio del Kindle.
+
+Casa è un componente aggiuntivo di KOReader: non sostituisce il sistema operativo del Kindle e non installa Cookidoo o il software del Bimby. Il codice non include ROM, giochi commerciali, foto, ricette personali, appunti, credenziali o configurazioni della rete di casa.
 
 ## Requisiti
 
-- Kindle 4 con accesso di amministrazione già configurato.
+- Kindle 4 compatibile con KOReader.
 - KOReader installato sul dispositivo.
-- Connessione Wi-Fi per il meteo, la pagina Config e gli aggiornamenti senza cavo.
+- Per la pagina Config e il meteo: connessione Wi‑Fi.
+- Per l’avvio automatico: accesso di amministrazione già configurato sul Kindle.
 
-## Prima installazione
+## Installazione
 
-1. Copiare `casa.koplugin` nella cartella dei componenti aggiuntivi di KOReader sul Kindle.
-2. Copiare i file contenuti in `casa-boot` nella cartella `casa` del Kindle.
-3. Eseguire `install.sh` sul dispositivo per registrare l’avvio automatico.
-4. Avviare KOReader e aprire Casa dal suo menu.
-5. Per abilitare gli aggiornamenti via Wi-Fi, eseguire una volta `bootstrap_casa_wifi.py` con il Kindle collegato via USB. In seguito `deploy_casa_wifi.py` invia gli aggiornamenti alla pagina locale di Casa.
+1. Copia `casa.koplugin` nella cartella dei componenti aggiuntivi di KOReader.
+2. Se vuoi l’avvio automatico, copia i file di `casa-boot` nella cartella Casa sul Kindle e segui le istruzioni di `install.sh`.
+3. Avvia KOReader e apri Casa dal menu dei componenti aggiuntivi.
+4. Per abilitare una volta gli aggiornamenti via Wi‑Fi, esegui `bootstrap_casa_wifi.py` con il Kindle collegato via USB. Poi `deploy_casa_wifi.py` invia i file aggiornati al Kindle sulla rete locale.
+5. Apri l’indirizzo locale mostrato da Casa per usare la pagina Config da telefono o computer.
 
-## Impostare il meteo
+## Meteo
 
-Il file `casa.koplugin/casa_model.lua` contiene le coordinate usate da Open-Meteo. Nel repository sono impostate a `0.0, 0.0`: sostituirle con le coordinate desiderate prima dell’installazione. Il servizio meteo non richiede un account.
+Il file `casa.koplugin/casa_model.lua` contiene le coordinate usate da Open‑Meteo. Nel repository sono impostate a `0.0, 0.0`: sostituiscile con quelle della località desiderata prima dell’installazione. Open‑Meteo non richiede un account.
 
-## Foto e dati personali
+## Dati e privacy
 
-Le foto, gli appunti, le ricette, le ROM, gli indirizzi di rete e le chiavi di aggiornamento restano sul dispositivo o sul computer. Non fanno parte di questo progetto. La pagina Config è accessibile soltanto sulla rete locale.
+Le foto, gli appunti, le ricette, le ROM, le chiavi di aggiornamento e gli indirizzi di rete restano fuori dal repository. La pagina Config è pensata per l’uso sulla rete locale e non deve essere esposta direttamente a Internet.
 
 ## Aggiornare
 
-Dopo una modifica ai file di `casa.koplugin`, collegare il Kindle alla stessa rete e lanciare `deploy_casa_wifi.py`. Per caricare il nuovo codice, riavviare KOReader dal menu di Casa.
+Dopo aver modificato i file di `casa.koplugin`, esegui `deploy_casa_wifi.py) dalla rete locale. Per caricare il nuovo codice in KOReader, usa il comando di riavvio di KOReader nel menu Casa; non è necessario riavviare tutto il Kindle.
