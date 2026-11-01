@@ -1,0 +1,15 @@
+# Dati e credenziali locali: non aggiungerli al repository.
+.DS_Store
+wifi-device-url.txt
+wifi-update-key.txt
+deployment.json
+backup/
+downloads/
+staging/
+test-runtime/
+library/
+review/
+Casa/Foto/
+Casa/Games/
+Casa/intervallo-foto.txt
+*.log
