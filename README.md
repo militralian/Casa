@@ -6,7 +6,8 @@ KindHome riutilizza un Kindle 4 con KOReader come pannello domestico a inchiostr
 
 - Mostra data, orologio, batteria e meteo, con intensità Wi‑Fi e percentuale batteria nell’icona.
 - Visualizza le previsioni dei prossimi giorni e una pagina testuale per il meteo di oggi e della settimana.
-- Organizza la schermata con riquadri per meteo, calendario mensile e foto; puoi scegliere l’orientamento e spostare o ridimensionare i riquadri dalla configurazione.
+- Organizza la schermata con un massimo di quattro riquadri per meteo, calendario, foto, timer da cucina e lista della spesa; puoi scegliere i widget, spostarli e ridimensionarli dal configuratore.
+- Offre un timer e una lista della spesa modificabili da telefono o computer tramite il pannello locale dedicato sulla porta `8766`.
 - Mostra le fotografie in galleria o come cornice digitale a schermo intero, con intervallo e attivazione dopo inattività configurabili.
 - Apre ricette, appunti e agenda salvati sul Kindle.
 - Si controlla con i tasti fisici del lettore; HOME prolungato torna alla schermata principale, chiude le finestre aperte e mostra la memoria recuperata.
