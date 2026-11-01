@@ -1,43 +1,43 @@
 # KindHome
 
-Casa trasforma un Kindle 4 con KOReader in una piccola schermata domestica a inchiostro elettronico. L’idea è riutilizzare il lettore come pannello informativo da tenere in casa.
+KindHome riutilizza un Kindle 4 con KOReader come pannello domestico a inchiostro elettronico, sempre pronto a mostrare informazioni utili.
 
-## Cosa fa
+## Funzioni
 
-- **Mostra data, ora, batteria e meteo** nella schermata iniziale.
-- **Visualizza le previsioni** e apre una pagina testuale per il meteo di oggi e della settimana.
-- **Organizza la schermata** con riquadri per meteo, calendario mensile e foto. Puoi scegliere l’orientamento verticale o orizzontale e regolare posizione e dimensioni dalla pagina Config.
-- **Mostra le foto** in galleria o come cornice digitale a schermo intero. L’intervallo delle foto e l’avvio automatico dopo inattività si configurano dalla pagina Config.
-- **Apre Ricette, Appunti e Agenda** dal menu di Casa, usando i documenti salvati sul Kindle.
-- **Fornisce un menu controllabile con i tasti fisici** del Kindle, con accesso a meteo, calendario, foto, giochi leggeri e impostazioni.
-- **Permette configurazione e invio foto in Wi‑Fi** da telefono o computer quando sono collegati alla stessa rete locale del Kindle.
-- **Include script facoltativi** per avviare KOReader all’accensione e per inviare gli aggiornamenti di Casa via Wi‑Fi dopo una prima configurazione USB.
+- Mostra data, orologio, batteria e meteo.
+- Visualizza le previsioni dei prossimi giorni e una pagina testuale per il meteo di oggi e della settimana.
+- Organizza la schermata con riquadri per meteo, calendario mensile e foto; puoi scegliere l’orientamento e spostare o ridimensionare i riquadri dalla configurazione.
+- Mostra le fotografie in galleria o come cornice digitale a schermo intero, con intervallo e attivazione dopo inattività configurabili.
+- Apre ricette, appunti e agenda salvati sul Kindle.
+- Si controlla con i tasti fisici del lettore.
+- Permette di configurare il pannello e inviare foto da telefono o computer tramite la rete Wi‑Fi locale.
+- Include strumenti facoltativi per avvio automatico e aggiornamenti senza cavo, dopo una prima configurazione USB.
 
-KindHome è un componente aggiuntivo di KOReader: non sostituisce il sistema operativo del Kindle e non installa Cookidoo o il software del Bimby. Il repository contiene il codice dell’interfaccia e dei servizi locali, ma non le foto, i documenti, le ricette personali, le ROM o i giochi commerciali.
+Nel Kindle il plugin continua a comparire con il nome **Casa**, come nell’installazione esistente. KindHome non sostituisce il sistema operativo del lettore e non installa Cookidoo o il software del Bimby.
 
 ## Requisiti
 
 - Kindle 4 compatibile con KOReader.
-- KOReader installato sul dispositivo.
-- Connessione Wi‑Fi per il meteo, la pagina Config e gli aggiornamenti.
-- Per l’avvio automatico: accesso di amministrazione già configurato sul Kindle.
+- KOReader installato.
+- Wi‑Fi per il meteo, la pagina di configurazione e gli aggiornamenti.
+- Per l’avvio automatico, accesso amministrativo già configurato sul Kindle.
 
 ## Installazione
 
-1. Copia `casa.koplugin` nella cartella dei componenti aggiuntivi di KOReader.
-2. Per l’avvio automatico facoltativo, copia i file di `casa-boot` nella cartella Casa sul Kindle e segui le istruzioni di `install.sh`.
-3. Avvia KOReader e apri Casa dal menu dei componenti aggiuntivi.
-4. Per abilitare gli aggiornamenti Wi‑Fi, esegui una volta `bootstrap_casa_wifi.py` con il Kindle collegato via USB. Poi `deploy_casa_wifi.py` invia i file aggiornati al Kindle sulla rete locale.
-5. Apri l’indirizzo locale mostrato da Casa per usare la pagina Config da telefono o computer.
+1. Copia il componente aggiuntivo **KindHome** nella cartella dei plugin di KOReader.
+2. Per l’avvio automatico facoltativo, copia sul Kindle i file di avvio inclusi nel repository ed esegui lo script `install.sh`.
+3. Avvia KOReader e apri il plugin dal menu.
+4. Per abilitare gli aggiornamenti Wi‑Fi, esegui una volta lo strumento di configurazione **KindHome** con il Kindle collegato via USB. In seguito, lo strumento **KindHome Wi‑Fi** invia gli aggiornamenti tramite la rete locale.
+5. Apri l’indirizzo mostrato sul Kindle per configurare la schermata o inviare foto dal telefono o dal computer.
 
-## Impostare il meteo
+## Meteo
 
-Il file `casa.koplugin/casa_model.lua` contiene le coordinate usate da Open‑Meteo. Nel repository sono impostate a `0.0, 0.0`: sostituiscile con quelle della località desiderata prima dell’installazione. Open‑Meteo non richiede un account.
+Imposta la località nel modulo meteo **KindHome** prima dell’installazione. Il servizio Open‑Meteo non richiede un account.
 
 ## Privacy e rete
 
-Il codice non include foto, appunti, ricette personali, ROM, chiavi di aggiornamento o indirizzi della rete domestica. La pagina Config è pensata per la rete locale; non va esposta direttamente a Internet.
+Il repository non contiene foto, appunti, ricette personali, ROM, chiavi Wi‑Fi o indirizzi della rete domestica. La pagina di configurazione è pensata per l’uso sulla rete locale e non va esposta direttamente a Internet.
 
 ## Aggiornare
 
-Dopo aver modificato i file di `casa.koplugin`, esegui `deploy_casa_wifi.py` dalla rete locale. Per caricare il nuovo codice in KOReader, riavvia KOReader dal menu Casa; non è necessario riavviare tutto il Kindle.
+Dopo una modifica al codice di **KindHome**, esegui lo strumento **KindHome Wi‑Fi** dalla rete locale. Per caricare la versione aggiornata, riavvia KOReader dal menu del plugin; non occorre riavviare tutto il Kindle.
