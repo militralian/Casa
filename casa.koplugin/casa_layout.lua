@@ -29,7 +29,7 @@ function L.build(state, width, height)
  local date=M.date(now)
  local page=state.page or "home"
  local data=state.data
- local title=page=="home" and "KindHome" or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="photos" and "Foto" or "La tua agenda"
+ local title=page=="home" and "KindHome" or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="timer" and "Timer cucina" or page=="shopping" and "Lista della spesa" or page=="photos" and "Foto" or "La tua agenda"
 
  if page~="photos" then
   text(28,9,360,28,title,true)
@@ -263,6 +263,30 @@ function L.build(state, width, height)
  elseif page=="photos" then
   if state.photo_file then photo(state.photo_file,0,0,800,600)
   else text(80,280,640,26,"Nessuna foto in Casa/Foto",true) end
+ elseif page=="timer" then
+  local kitchen=state.kitchen_data or {}
+  local remaining=math.max(0,tonumber(kitchen.timer_remaining_seconds) or tonumber(kitchen.timer_duration_seconds) or 600)
+  text(80,128,640,30,"Timer cucina",true,false,false,38,"center")
+  text(90,225,620,104,string.format("%02d:%02d",math.floor(remaining/60),remaining%60),true,false,false,118,"center")
+  text(120,368,560,28,kitchen.timer_running and "Timer in corso" or remaining==0 and "Tempo scaduto" or "Timer pronto",true,false,false,38,"center")
+  text(28,582,740,14,"Gestisci il timer dal pannello Cucina · Centro/Home: Casa")
+ elseif page=="shopping" then
+  local items=(state.kitchen_data or {}).shopping_items or {}
+  local first=(state.shopping_scroll or 0)*12
+  text(32,108,720,22,#items.." prodotti",false)
+  if #items==0 then text(40,230,700,28,"La lista è vuota. Aggiungi prodotti dal pannello Cucina.",true)
+  else
+   for i=1,12 do
+    local item=items[first+i]
+    if item then
+     local y=145+(i-1)*32
+     text(48,y,700,20,(item.checked and "✓  " or "□  ")..item.text,item.checked,item.checked,false,28)
+     rule(y+27,48,700)
+    end
+   end
+  end
+  local pages=math.max(1,math.ceil(#items/12))
+  text(28,582,740,14,"Pagina "..tostring((state.shopping_scroll or 0)+1).."/"..tostring(pages).." · Su/giù: scorri · Centro/Home: Casa")
  elseif page=="day" then
   text(32,106,720,23,"Meteo locale · situazione attuale",true)
   local fresh=data and data.fetched_at and now-data.fetched_at<180 and now>=data.fetched_at
