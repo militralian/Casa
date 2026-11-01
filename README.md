@@ -44,3 +44,5 @@ Il repository non contiene foto, appunti, ricette personali, ROM, chiavi Wi‑Fi
 ## Aggiornare
 
 Dopo una modifica al codice di **KindHome**, esegui lo strumento **KindHome Wi‑Fi** dalla rete locale. Per caricare la versione aggiornata, riavvia KOReader dal menu del plugin; non occorre riavviare tutto il Kindle.
+
+- Permette di scegliere cosa mostrare quando si riattiva il Kindle con il tasto di accensione: presentazione, calendario grande, meteo, timer o lista della spesa.
