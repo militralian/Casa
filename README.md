@@ -9,8 +9,9 @@ KindHome riutilizza un Kindle 4 con KOReader come pannello domestico a inchiostr
 - Organizza la schermata con riquadri per meteo, calendario mensile e foto; puoi scegliere l’orientamento e spostare o ridimensionare i riquadri dalla configurazione.
 - Mostra le fotografie in galleria o come cornice digitale a schermo intero, con intervallo e attivazione dopo inattività configurabili.
 - Apre ricette, appunti e agenda salvati sul Kindle.
-- Si controlla con i tasti fisici del lettore e include un comando per liberare memoria con riepilogo di quanto recuperato.
+- Si controlla con i tasti fisici del lettore; HOME prolungato torna alla schermata principale, chiude le finestre aperte e mostra la memoria recuperata.
 - Include modalità notte manuale o programmata e icone leggibili a schermo invertito.
+- La patch per abilitare la pressione prolungata di HOME su KOReader è inclusa nella cartella `patches`.
 - Permette di configurare il pannello e inviare foto da telefono o computer tramite la rete Wi‑Fi locale.
 - Include strumenti facoltativi per avvio automatico e aggiornamenti senza cavo, dopo una prima configurazione USB.
 
