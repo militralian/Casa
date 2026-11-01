@@ -117,8 +117,8 @@ function Server:getSlideshowSettings()
    night_start=type(data.night_start)=="string" and data.night_start:match("^%d%d:%d%d$") and data.night_start or night_start
    night_end=type(data.night_end)=="string" and data.night_end:match("^%d%d:%d%d$") and data.night_end or night_end
    calendar_enabled=data.calendar_enabled==true
-   timer_enabled=data.timer_enabled~=false
-   shopping_enabled=data.shopping_enabled~=false
+   timer_enabled=data.timer_enabled==nil and data.calendar_enabled~=true or data.timer_enabled==true
+   shopping_enabled=data.shopping_enabled==nil and data.calendar_enabled~=true or data.shopping_enabled==true
    weather_enabled=data.weather_enabled~=false
    photo_enabled=data.photo_enabled~=false
    weather_side=data.weather_side=="right" and "right" or "left"
