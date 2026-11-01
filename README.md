@@ -1,4 +1,4 @@
-# Casa
+# KindHome
 
 Casa trasforma un Kindle 4 con KOReader in una piccola schermata domestica a inchiostro elettronico. L’idea è riutilizzare il lettore come pannello informativo da tenere in casa.
 
@@ -13,7 +13,7 @@ Casa trasforma un Kindle 4 con KOReader in una piccola schermata domestica a inc
 - **Permette configurazione e invio foto in Wi‑Fi** da telefono o computer quando sono collegati alla stessa rete locale del Kindle.
 - **Include script facoltativi** per avviare KOReader all’accensione e per inviare gli aggiornamenti di Casa via Wi‑Fi dopo una prima configurazione USB.
 
-Casa è un componente aggiuntivo di KOReader: non sostituisce il sistema operativo del Kindle e non installa Cookidoo o il software del Bimby. Il repository contiene il codice dell’interfaccia e dei servizi locali, ma non le foto, i documenti, le ricette personali, le ROM o i giochi commerciali.
+KindHome è un componente aggiuntivo di KOReader: non sostituisce il sistema operativo del Kindle e non installa Cookidoo o il software del Bimby. Il repository contiene il codice dell’interfaccia e dei servizi locali, ma non le foto, i documenti, le ricette personali, le ROM o i giochi commerciali.
 
 ## Requisiti
 
