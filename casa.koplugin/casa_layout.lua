@@ -79,14 +79,16 @@ function L.build(state, width, height)
   if state.weather_enabled~=false then
    local x,y,w,h=box("weather");local code=fresh and M.currentCode(data.current) or nil
    text(x+6,y+5,w-12,22,"Meteo locale",true)
-   text(x+6,y+30,math.min(104,w*.34),h<210 and 46 or 60,fresh and M.number(data.current.temperature_2m).."°" or "—°",true)
+   local temp_size=h<285 and 42 or 50
+   text(x+6,y+30,math.min(104,w*.34),temp_size,fresh and M.number(data.current.temperature_2m).."°" or "—°",true,false,false,temp_size+10)
    local icon_size=math.min(46,h<190 and 34 or h/4,w*.15)
    icon(x+w*.34,y+32,icon_size,code)
    text(x+w*.34+icon_size+5,y+40,w*.60-icon_size,18,fresh and M.shortCondition(code) or "Meteo non aggiornato",true,false,false,27)
    if fresh and data.daily and h>=132 then
     local idx=M.todayIndex(data,now);local maxrows=h<190 and 2 or h<285 and 4 or 7;local rowstep=h>=285 and math.min(32,(h-120)/maxrows) or 23
     for i=1,math.min(maxrows,7) do
-     local ry=y+88+(i-1)*rowstep;local day=data.daily.time[i]
+     local forecast_y=30+temp_size+20
+     local ry=y+forecast_y+(i-1)*rowstep;local day=data.daily.time[i]
      text(x+5,ry,53,14,i==idx and "Oggi" or day:sub(9,10).."/"..day:sub(6,7),true)
      icon(x+59,ry-2,math.min(19,rowstep),data.daily.weather_code[i])
      text(x+81,ry,w-185,13,M.shortCondition(data.daily.weather_code[i]),false,false,false,22)
