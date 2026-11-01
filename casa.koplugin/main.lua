@@ -12,6 +12,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Model = require("casa_model")
 local Layout = require("casa_layout")
 local PhotoServer = require("photo_server")
+local KitchenServer = require("kitchen_server")
 local json = require("json")
 local lfs = require("libs/libkoreader-lfs")
 local ROOT = "/mnt/us"
@@ -80,6 +81,8 @@ function Home:init()
   ROOT.."/koreader/plugins/casa.koplugin",ROOT.."/Casa/casa-update-key.txt",GAMES_DIR)
  local slideshow=self.photo_server:getSlideshowSettings()
  self.state.photo_interval=slideshow.interval_seconds
+ self.state.timer_enabled=slideshow.timer_enabled
+ self.state.shopping_enabled=slideshow.shopping_enabled
  self.state.screensaver_enabled=slideshow.screensaver_enabled
  self.state.screensaver_delay=slideshow.screensaver_delay_seconds
  self.state.night_mode=slideshow.night_mode
@@ -94,6 +97,8 @@ function Home:init()
  self.state.calendar_side=slideshow.calendar_side
  self.state.widget_layout=slideshow.widget_layout
  self.state.screen_orientation=slideshow.screen_orientation
+ self.state.kitchen_data=nil
+ self.kitchen_server=KitchenServer:new(ROOT.."/Casa/kitchen.json")
  self.state.page="home"
  self.last_input=os.time()
  self.state.photo_index=1
@@ -136,7 +141,7 @@ function Home:init()
    local old_layout=self.state.widget_layout or {}
    local new_layout=settings.widget_layout or {}
    local layout_changed=false
-   for _,name in ipairs({"weather","calendar","photo"}) do
+   for _,name in ipairs({"weather","calendar","photo","timer","shopping"}) do
     local before,after=old_layout[name] or {},new_layout[name] or {}
     for _,key in ipairs({"x","y","w","h"}) do
      if tonumber(before[key])~=tonumber(after[key]) then layout_changed=true end
@@ -145,6 +150,8 @@ function Home:init()
    local widgets_changed=settings.calendar_enabled~=self.state.calendar_enabled
     or settings.weather_enabled~=self.state.weather_enabled
     or settings.photo_enabled~=self.state.photo_enabled
+    or settings.timer_enabled~=self.state.timer_enabled
+    or settings.shopping_enabled~=self.state.shopping_enabled
    if settings.interval_seconds~=self.state.photo_interval then
     self.state.photo_interval=settings.interval_seconds
     self.last_photo_change=now
@@ -159,6 +166,8 @@ function Home:init()
    self.state.calendar_enabled=settings.calendar_enabled
    self.state.weather_enabled=settings.weather_enabled
    self.state.photo_enabled=settings.photo_enabled
+   self.state.timer_enabled=settings.timer_enabled
+   self.state.shopping_enabled=settings.shopping_enabled
    self.state.weather_side=settings.weather_side
    self.state.photo_side=settings.photo_side
    self.state.calendar_side=settings.calendar_side
@@ -172,6 +181,14 @@ function Home:init()
    if (layout_changed or widgets_changed) and self.state.page=="home" then
     self:repaint()
    end
+  end
+  if self.kitchen_server then
+   local kitchen=self.kitchen_server:getData()
+   local previous=self.state.kitchen_data or {}
+   if kitchen.updated_at~=previous.updated_at or kitchen.timer_remaining_seconds~=previous.timer_remaining_seconds or kitchen.timer_running~=previous.timer_running then
+    self.state.kitchen_data=kitchen
+    if self.state.page=="home" then self:repaint() end
+   else self.state.kitchen_data=kitchen end
   end
   local nt=Model.romeTime(now)
   local current_minutes=nt.hour*60+nt.min
@@ -228,6 +245,14 @@ function Home:init()
     self.last_ip_lookup=os.time()
     local current_url=self.photo_server:getURL()
     if current_url then self.state.upload_url=current_url end
+   end
+  end
+  if self.kitchen_server then
+   self.kitchen_server:poll()
+   if os.time()-(self.last_kitchen_ip_lookup or 0)>=15 then
+    self.last_kitchen_ip_lookup=os.time()
+    local kitchen_url=self.kitchen_server:getURL()
+    if kitchen_url then self.state.kitchen_url=kitchen_url end
    end
   end
   UIManager:scheduleIn(0.25,self.upload_tick)
@@ -589,8 +614,12 @@ function Home:startServices()
  if self.photo_server and self.photo_server:start() then
   self.state.upload_url=self.photo_server:getURL()
   self.last_ip_lookup=0
-  self:repaint()
  end
+ if self.kitchen_server and self.kitchen_server:start() then
+  self.state.kitchen_url=self.kitchen_server:getURL()
+  self.last_kitchen_ip_lookup=0
+ end
+ self:repaint()
 end
 function Home:setKindleScreenSaverPrevented(prevent)
  local value=prevent and "1" or "0"
@@ -633,7 +662,7 @@ function Home:choosePhoto(delta)
 end
 function Home:onMove(delta)
  self:touchActivity()
- if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%13)+1
+ if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%14)+1
  elseif self.state.page=="games" then
   self.state.game_selected=math.max(1,math.min(#self.state.game_results,(self.state.game_selected or 1)+delta))
  elseif self.state.page=="game_search" then
@@ -736,6 +765,7 @@ function Home:onChoose()
    os.execute("sleep 1 && reboot &")
   end})
  elseif choice==13 then self:clearMemory()
+ elseif choice==14 then UIManager:show(InfoMessage:new{text=self.state.kitchen_url and ("Apri dal telefono "..self.state.kitchen_url.." per usare il timer e la lista della spesa. Kindle e telefono devono essere sulla stessa Wi-Fi.") or "Connetti Kindle alla Wi-Fi e riapri Casa per attivare il pannello Cucina sulla porta 8766."})
  end
  return true
 end
@@ -818,6 +848,7 @@ function Home:onCloseWidget()
  UIManager:unschedule(self.upload_tick)
  if self.game_tick then UIManager:unschedule(self.game_tick) end
  if self.photo_server then self.photo_server:close() end
+ if self.kitchen_server then self.kitchen_server:close() end
  if self.photo_widget then self.photo_widget:free();self.photo_widget=nil end
  UIManager:setDirty(nil,"full")
 end
