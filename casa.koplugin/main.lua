@@ -97,6 +97,8 @@ function Home:init()
  self.state.calendar_side=slideshow.calendar_side
  self.state.widget_layout=slideshow.widget_layout
  self.state.screen_orientation=slideshow.screen_orientation
+ self.state.power_button_enabled=slideshow.power_button_enabled
+ self.state.power_button_action=slideshow.power_button_action
  self.state.kitchen_data=nil
  self.kitchen_server=KitchenServer:new(ROOT.."/Casa/kitchen.json")
  self.state.page="home"
@@ -172,6 +174,8 @@ function Home:init()
    self.state.photo_side=settings.photo_side
    self.state.calendar_side=settings.calendar_side
    self.state.widget_layout=settings.widget_layout
+   self.state.power_button_enabled=settings.power_button_enabled
+   self.state.power_button_action=settings.power_button_action
    if settings.screen_orientation~=self.state.screen_orientation then
     self.state.screen_orientation=settings.screen_orientation
     self:applyOrientation(settings.screen_orientation)
@@ -564,6 +568,19 @@ function Home:onResume()
  if self.closed then return true end
  self.last_input=os.time()
  if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(true) end
+ local action=self.state.power_button_enabled and self.state.power_button_action or nil
+ if action then
+  self.state.menu_open=false
+  if action=="photos" then
+   self:loadPhotos()
+   if #self.photos>0 then
+    self.state.page="photos";self.state.photo_screensaver=false;self.state.photo_index=1;self:choosePhoto(0);self.last_photo_change=self.last_input
+   else self.state.page="home";UIManager:scheduleIn(0.6,function() if not self.closed then UIManager:show(InfoMessage:new{text="Non ci sono foto nella galleria."}) end end) end
+  elseif action=="calendar" then self.state.page="calendar";self.state.calendar_month=0
+  elseif action=="weather" then self.state.page="day"
+  elseif action=="timer" then self.state.page="timer"
+  elseif action=="shopping" then self.state.page="shopping";self.state.shopping_scroll=0 end
+ end
  UIManager:scheduleIn(0.5,function()
   if self.closed then return end
   self:applyOrientation(self.state.screen_orientation)
@@ -679,6 +696,9 @@ function Home:onMove(delta)
   for i,value in ipairs(order) do if value==self.state.page then index=i end end
   index=index+delta
   if index<1 or index>#order then self.state.page="home" else self.state.page=order[index] end
+ elseif self.state.page=="shopping" then
+  local items=(self.state.kitchen_data or {}).shopping_items or {}
+  self.state.shopping_scroll=math.max(0,math.min(math.max(0,math.ceil(#items/12)-1),(self.state.shopping_scroll or 0)+delta))
  elseif self.state.page=="agenda" then
   local count=#Model.agenda(self.state.agenda_text)
   self.state.agenda_page=math.max(0,math.min(math.max(0,math.ceil(count/5)-1),self.state.agenda_page+delta))
