@@ -4,8 +4,8 @@ local L = {}
 function L.build(state, width, height)
  local out={}
  local sx,sy=width/800,height/600
- local function text(x,y,w,size,value,bold,white,serif,max_height)
-  out[#out+1]={kind="text",x=x*sx,y=y*sy,w=w*sx,size=size*sx,text=value or "",bold=bold,white=white,serif=serif,max_height=max_height and max_height*sy}
+ local function text(x,y,w,size,value,bold,white,serif,max_height,alignment)
+  out[#out+1]={kind="text",x=x*sx,y=y*sy,w=w*sx,size=size*sx,text=value or "",bold=bold,white=white,serif=serif,max_height=max_height and max_height*sy,alignment=alignment}
  end
  local function rect(x,y,w,h,black)
   out[#out+1]={kind="rect",x=x*sx,y=y*sy,w=w*sx,h=h*sy,black=black}
@@ -19,7 +19,8 @@ function L.build(state, width, height)
  local function rule(y,x,w) rect(x or 30,y,w or 740,1,true) end
  local function icon(x,y,size,code)
   if state.night_active and state.page~="photos" then rect(x-2,y-2,size+4,size+4,true) end
-  out[#out+1]={kind="icon",x=x*sx,y=y*sy,w=size*sx,h=size*sy,name=M.icon(code)}
+  local name=type(code)=="string" and code:match("^wifi[1-4]$") and code or code=="wifi" and "wifi" or M.icon(code)
+  out[#out+1]={kind="icon",x=x*sx,y=y*sy,w=size*sx,h=size*sy,name=name,night=state.night_active and state.page~="photos"}
  end
  local function photo(file,x,y,w,h)
   if file then out[#out+1]={kind="photo",file=file,x=x*sx,y=y*sy,w=w*sx,h=h*sy} end
@@ -28,20 +29,26 @@ function L.build(state, width, height)
  local date=M.date(now)
  local page=state.page or "home"
  local data=state.data
- local title=page=="home" and "Casa" or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="photos" and "Foto" or "La tua agenda"
+ local title=page=="home" and "KindHome" or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="photos" and "Foto" or "La tua agenda"
 
  if page~="photos" then
   text(28,9,360,28,title,true)
   text(28,44,430,19,date:gsub("^%l", string.upper):gsub(" (%l)", function(letter) return " "..string.upper(letter) end),true)
   if page=="home" then text(28,69,520,16,M.phrase(now),false,false,true,22) end
-  text(510,11,185,34,state.clock_text or "--:--:--",true)
-  -- Clear outline, positive terminal on the right, and a fill proportional to charge.
-  -- Battery geometry uses one scale in both axes so it stays rectangular in portrait.
-  battery_rect(704,17,37,22,true); battery_rect(706,19,33,18,false)
-  battery_rect(741,23,4,10,true)
+  text(432,11,168,34,state.clock_text or "--:--:--",true)
+  -- Wi-Fi strength is shown by the number of visible waves beside the battery.
+  if state.wifi_enabled then
+   local strength=math.max(1,math.min(4,tonumber(state.wifi_strength) or 1))
+   icon(700,11,31,"wifi"..strength)
+  else
+   text(620,20,108,16,"Disattivato",false)
+  end
+  -- Battery level is a compact, centered number inside a clear battery outline.
+  battery_rect(735,14,48,26,true); battery_rect(737,16,44,22,false)
+  battery_rect(783,21,5,12,true)
   local charge=math.max(0,math.min(100,tonumber(state.battery_pct) or 0))
-  if charge>0 then battery_rect(708,21,math.floor(29*charge/100),14,true) end
-  text(750,18,48,22,state.battery_pct and (tostring(state.battery_pct).."%") or "—%",true)
+  battery_rect(739,33,math.floor(40*charge/100),3,true)
+  text(738,17,42,15,state.battery_pct and (tostring(state.battery_pct).."%") or "—",true,false,false,16,"center")
   rule(94,24,752)
  end
 
@@ -86,8 +93,8 @@ function L.build(state, width, height)
    text(x+w*.34+icon_size+5,y+40,w*.60-icon_size,18,fresh and M.shortCondition(code) or "Meteo non aggiornato",true,false,false,27)
    if fresh and data.daily and h>=132 then
     local idx=M.todayIndex(data,now);local maxrows=h<190 and 2 or h<285 and 4 or 7;local rowstep=h>=285 and math.min(32,(h-120)/maxrows) or 23
+    local forecast_y=30+temp_size+20
     for i=1,math.min(maxrows,7) do
-     local forecast_y=30+temp_size+20
      local ry=y+forecast_y+(i-1)*rowstep;local day=data.daily.time[i]
      text(x+5,ry,53,14,i==idx and "Oggi" or day:sub(9,10).."/"..day:sub(6,7),true)
      icon(x+59,ry-2,math.min(19,rowstep),data.daily.weather_code[i])
@@ -113,9 +120,9 @@ function L.build(state, width, height)
   end
   if state.menu_open then
    rect(28,105,322,446,true); rect(30,107,318,442,false)
-   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle"}
+   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria"}
    for i,label in ipairs(labels) do
-    local y=111+(i-1)*35
+    local y=111+(i-1)*32
     local selected=i==state.selected
     if selected then rect(39,y-2,300,35,true) end
     text(49,y,278,23,label,selected,selected,false,27)
@@ -124,7 +131,7 @@ function L.build(state, width, height)
   local events=M.agenda(state.agenda_text,now)
   if events[1] then text(30,559,340,15,"Prossimo: "..events[1].date:sub(9,10).."/"..events[1].date:sub(6,7).." · "..events[1].hour.." · "..events[1].title,false,false,false,24) end
   text(28,582,510,14,state.menu_open and "Su/giù: scegli · Centro: apri · Indietro: chiudi menu" or "Centro: menu · Frecce: galleria · Su/giù: meteo")
-  text(550,581,230,15,state.upload_url and ("Config: "..state.upload_url) or "Config Wi-Fi non pronta",false)
+  text(550,581,230,15,state.internet_online and state.upload_url and ("Config: "..state.upload_url) or "NO INTERNET FOUND",false)
  elseif page=="calendar" then
   local today=M.romeTime(now)
   local stamp=os.time{year=today.year,month=today.month+(state.calendar_month or 0),day=1,hour=12}
