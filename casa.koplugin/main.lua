@@ -1,5 +1,6 @@
 local Device = require("device")
 local UIManager = require("ui/uimanager")
+local PluginShare = require("pluginshare")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Geom = require("ui/geometry")
@@ -56,6 +57,14 @@ function Home:init()
  -- Casa is an always-on dashboard; inhibit KOReader's automatic system standby
  -- while this window is active. The physical power switch still works normally.
  self.standby_prevented=pcall(UIManager.preventStandby,UIManager)
+ -- Keep powerd and KOReader AutoSuspend in sync. On Kindle, leaving
+ -- preventScreenSaver active without PluginShare.keepalive can make the
+ -- AutoSuspend T1 timer spin forever when powerd ignores a suspend request.
+ self.previous_keepalive=PluginShare.keepalive
+ self.previous_pause_auto_suspend=PluginShare.pause_auto_suspend
+ PluginShare.keepalive=true
+ PluginShare.pause_auto_suspend=true
+ self:setKindleScreenSaverPrevented(true)
  self.state={page="home",selected=1,game_selected=1,data=decode(read(CACHE)),agenda_page=0,
   agenda_text=read(ROOT.."/documents/Appunti/Agenda.txt"),game_filter="Tutti",
   calendar_month=0,night_active=false,
@@ -101,6 +110,10 @@ function Home:init()
  self.tick=function()
   if self.closed then return end
   local now=os.time()
+  if now-(self.last_network_check or 0)>=15 then
+   self.last_network_check=now
+   self:updateNetworkStatus()
+  end
   if self.photo_server and (self.photo_server.upload_seq or 0)~=(self.last_seen_upload_seq or 0) then
    self.last_seen_upload_seq=self.photo_server.upload_seq or 0
    self:loadPhotos()
@@ -197,7 +210,7 @@ function Home:init()
   if self.state.page~="photos" and self.state.page~="game" then
    local sx=Device.screen:getWidth()/800
    local sy=Device.screen:getHeight()/600
-   self:repaint(Geom:new{x=500*sx,y=0,w=300*sx,h=55*sy})
+  self:repaint(Geom:new{x=500*sx,y=0,w=300*sx,h=55*sy})
   end
   -- Refresh live weather every minute while connected; failures retry after a minute.
   if now-(self.last_weather_check or 0)>=60 then
@@ -228,6 +241,42 @@ function Home:loadGameList()
  self.state.game_results=self.game_list
  self.state.game_selected=math.max(1,math.min(self.state.game_selected or 1,#self.state.game_results))
  self.state.game_scroll=1
+end
+
+function Home:updateNetworkStatus()
+ local network=require("ui/network/manager")
+ local old_wifi=self.state.wifi_enabled
+ local old_connected=self.state.wifi_connected
+ local old_online=self.state.internet_online
+ local ok_wifi,wifi=pcall(network.isWifiOn,network)
+ local ok_connected,connected=pcall(network.isConnected,network)
+ wifi=ok_wifi and wifi==true
+ connected=wifi and ok_connected and connected==true
+ self.state.wifi_enabled=wifi
+ self.state.wifi_connected=connected
+ self.state.wifi_strength=0
+ if connected then
+  local ok_online,online=pcall(network.isOnline,network)
+  self.state.internet_online=ok_online and online==true
+  local f=io.open("/proc/net/wireless","r")
+  if f then
+   local raw=f:read("*a");f:close()
+   local signal=raw and (raw:match("wlan0:%s+[%x]+%s+[%d%.%-]+%s+([%d%.%-]+)") or raw:match("wifi0:%s+[%x]+%s+[%d%.%-]+%s+([%d%.%-]+)"))
+   signal=tonumber(signal)
+   if signal then
+    if signal<0 then
+     self.state.wifi_strength=signal>=-55 and 4 or signal>=-67 and 3 or signal>=-75 and 2 or 1
+    else
+     self.state.wifi_strength=signal>=65 and 4 or signal>=50 and 3 or signal>=35 and 2 or 1
+    end
+   end
+  end
+ else
+  self.state.internet_online=false
+ end
+ if old_wifi~=self.state.wifi_enabled or old_connected~=self.state.wifi_connected or old_online~=self.state.internet_online then
+  self:repaint()
+ end
 end
 
 function Home:ensureGameVisible()
@@ -463,12 +512,13 @@ function Home:paintTo(bb,x,y)
    end
    self.photo_widget:paintTo(bb,x+c.x,y+c.y)
   elseif c.kind=="icon" then
-   local widget=ImageWidget:new{file=ROOT.."/koreader/plugins/casa.koplugin/icons/"..c.name..".svg",width=c.w,height=c.h,alpha=true}
+   local icon_name=c.night and (c.name.."-night") or c.name
+   local widget=ImageWidget:new{file=ROOT.."/koreader/plugins/casa.koplugin/icons/"..icon_name..".svg",width=c.w,height=c.h,alpha=true}
    widget:paintTo(bb,x+c.x,y+c.y);widget:free()
   else
    local widget=TextBoxWidget:new{text=c.text,width=math.floor(c.w),
     face=Font:getFace(c.serif and "FreeSerif.ttf" or "cfont",math.floor(c.size)),
-    bold=c.bold,fgcolor=((c.white==true)~=night) and BB.COLOR_WHITE or BB.COLOR_BLACK,
+    alignment=c.alignment,bold=c.bold,fgcolor=((c.white==true)~=night) and BB.COLOR_WHITE or BB.COLOR_BLACK,
     bgcolor=((c.white==true)~=night) and BB.COLOR_BLACK or BB.COLOR_WHITE,
     height=c.max_height,height_overflow_show_ellipsis=true}
    widget:paintTo(bb,x+c.x,y+c.y); widget:free()
@@ -583,7 +633,7 @@ function Home:choosePhoto(delta)
 end
 function Home:onMove(delta)
  self:touchActivity()
- if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%12)+1
+ if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%13)+1
  elseif self.state.page=="games" then
   self.state.game_selected=math.max(1,math.min(#self.state.game_results,(self.state.game_selected or 1)+delta))
  elseif self.state.page=="game_search" then
@@ -674,13 +724,18 @@ function Home:onChoose()
  elseif choice==10 then
   UIManager:show(InfoMessage:new{text=self.state.upload_url and ("Sul telefono apri "..self.state.upload_url.." e scegli una foto. Kindle e telefono devono usare la stessa rete Wi-Fi.") or "Connetti il Kindle al Wi-Fi e riapri Casa per ricevere un indirizzo locale."})
  elseif choice==11 then
-  UIManager:askForRestart("Riavvia KOReader per ricaricare Casa? Il Kindle non verrà spento.")
+  local ConfirmBox=require("ui/widget/confirmbox")
+  UIManager:show(ConfirmBox:new{text="KOReader si chiuderà e si riaprirà per caricare gli aggiornamenti. Il Kindle non verrà riavviato.",ok_text="Riavvia KOReader",ok_callback=function()
+   UIManager:close(self)
+   UIManager:restartKOReader()
+  end})
  elseif choice==12 then
   local ConfirmBox=require("ui/widget/confirmbox")
   UIManager:show(ConfirmBox:new{text="Vuoi riavviare il Kindle adesso?",ok_text="Riavvia",ok_callback=function()
    UIManager:close(self)
    os.execute("sleep 1 && reboot &")
   end})
+ elseif choice==13 then self:clearMemory()
  end
  return true
 end
@@ -699,10 +754,62 @@ function Home:onRefresh()
  if self.state.page=="games" then return true end
  self:touchActivity();self:refresh(true);return true
 end
-function Home:onHome() self:touchActivity(); self.game_generation=(self.game_generation or 0)+1; if self.game_tick then UIManager:unschedule(self.game_tick) end; self.state.game=nil; self.state.page="home"; self.state.menu_open=false; self:repaint(); return true end
+function Home:onHome()
+ self.home_repeat_count=0
+ self.home_memory_cleared=false
+ self:touchActivity()
+ self.game_generation=(self.game_generation or 0)+1
+ if self.game_tick then UIManager:unschedule(self.game_tick);self.game_tick=nil end
+ self.state.game=nil;self.state.page="home";self.state.menu_open=false
+ self:repaint()
+ return true
+end
+function Home:onKeyRepeat(key)
+ if key:match({"Home"}) then
+  self.home_repeat_count=(self.home_repeat_count or 0)+1
+  if self.home_repeat_count>=12 and not self.home_memory_cleared then
+   self.home_memory_cleared=true
+   self:clearMemory()
+  end
+  return true
+ end
+ return InputContainer.onKeyRepeat(self,key)
+end
+function Home:clearMemory()
+ self:touchActivity()
+ collectgarbage("collect")
+ local memory_before=collectgarbage("count")
+ self.game_generation=(self.game_generation or 0)+1
+ if self.game_tick then UIManager:unschedule(self.game_tick); self.game_tick=nil end
+ self.state.game=nil
+ self.state.page="home"
+ self.state.menu_open=false
+ self.state.photo_screensaver=false
+ self.state.transition=nil
+ if self.photo_widget then self.photo_widget:free(); self.photo_widget=nil end
+ self.photo_widget_key=nil
+ -- Close transient dialogs/documents above Casa, keeping the Casa dashboard
+ -- itself alive and available as the return point.
+ local to_close={}
+ for _,window in ipairs(UIManager._window_stack or {}) do
+  local widget=window.widget
+  if widget and widget~=self and not widget.is_always_active then to_close[#to_close+1]=widget end
+ end
+ for i=#to_close,1,-1 do pcall(UIManager.close,UIManager,to_close[i]) end
+ collectgarbage("collect")
+ collectgarbage("collect")
+ local memory_after=collectgarbage("count")
+ local freed_kb=math.max(0,math.floor(memory_before-memory_after+0.5))
+ local freed_text=freed_kb>=1024 and string.format("%.1f MB",freed_kb/1024) or (freed_kb.." KB")
+ UIManager:show(InfoMessage:new{text="Memoria liberata: "..freed_text})
+ self:repaint()
+ return true
+end
 function Home:onCloseWidget()
  self.closed=true
- if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(false) end
+ if self.kindle_screensaver_prevented and not self.previous_keepalive then self:setKindleScreenSaverPrevented(false) end
+ PluginShare.keepalive=self.previous_keepalive
+ PluginShare.pause_auto_suspend=self.previous_pause_auto_suspend
  if self.standby_prevented then
   pcall(UIManager.allowStandby,UIManager)
   self.standby_prevented=false
