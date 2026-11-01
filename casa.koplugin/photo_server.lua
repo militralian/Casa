@@ -227,12 +227,12 @@ function Server:handle(client, header, body)
    return response(client,"403 Forbidden",json.encode({error="Aggiornamento non autorizzato"}),"application/json; charset=utf-8")
   end
   local relative=header:match("[Xx]%-[Cc]asa%-[Uu]pdate%-[Ff]ile:%s*([^\r\n]+)") or ""
-  local allowed=relative=="main.lua" or relative=="casa_model.lua" or relative=="casa_layout.lua" or relative=="photo_server.lua" or relative=="_meta.lua" or relative:match("^icons/[%w%._%-]+%.svg$")
+  local allowed=relative=="main.lua" or relative=="casa_model.lua" or relative=="casa_layout.lua" or relative=="photo_server.lua" or relative=="_meta.lua" or relative=="core-input.lua" or relative:match("^icons/[%w%._%-]+%.svg$")
   if not allowed or relative:find("..",1,true) or not self.plugin_dir then
    return response(client,"400 Bad Request",json.encode({error="File di Casa non valido"}),"application/json; charset=utf-8")
   end
   if #body>512*1024 then return response(client,"413 Payload Too Large",json.encode({error="File troppo grande"}),"application/json; charset=utf-8") end
-  local destination=self.plugin_dir.."/"..relative
+  local destination=relative=="core-input.lua" and (self.plugin_dir.."/../../frontend/device/input.lua") or (self.plugin_dir.."/"..relative)
   local temp=destination..".update-tmp"
   local file=io.open(temp,"wb")
   if not file then return response(client,"507 Insufficient Storage",json.encode({error="Spazio insufficiente"}),"application/json; charset=utf-8") end
@@ -342,7 +342,7 @@ select,input[type=time]{width:100%;min-height:44px;margin-top:8px;padding:9px 11
 <div class="switch-row delay-head"><label class="switch-label" for="widget-photo">Mostra foto</label><label class="switch"><input id="widget-photo" type="checkbox" checked><span class="switch-track"></span></label></div>
 <div class="switch-row delay-head"><label class="switch-label" for="widget-calendar">Mostra calendario mensile</label><label class="switch"><input id="widget-calendar" type="checkbox"><span class="switch-track"></span></label></div>
 <div class="layout-editor"><div class="interval-head"><label>Anteprima della home</label><span class="layout-hint" id="layout-hint">Kindle 4 · orizzontale</span></div><p class="switch-help">I riquadri si agganciano alla griglia e non si sovrappongono. Trascinali per spostarli; usa i bordi per ridimensionarli.</p>
-<div class="preview-stage" aria-label="Anteprima configurabile della schermata Casa"><div class="preview-header"><strong>Casa</strong><span>Mercoledì 09:41</span></div><div id="editor-canvas" class="editor-canvas">
+<div class="preview-stage" aria-label="Anteprima configurabile della schermata Casa"><div class="preview-header"><strong>KindHome</strong><span>Mercoledì 09:41</span></div><div id="editor-canvas" class="editor-canvas">
 <div class="device-widget weather-widget" data-widget="weather"><strong>Meteo locale</strong><div class="weather-preview-main"><b>22°</b><span>Parz. nuvoloso</span></div><div class="weather-preview-days">Oggi&nbsp;&nbsp; 20° / 25°<br>Domani&nbsp;&nbsp; 18° / 24°</div><span class="resize-handle resize-x" data-axis="x" aria-label="Allarga o restringi il meteo"></span><span class="resize-handle resize-y" data-axis="y" aria-label="Allunga o accorcia il meteo"></span><span class="resize-handle resize-corner" data-axis="both" aria-label="Ridimensiona il meteo in larghezza e altezza"></span></div>
 <div class="device-widget photo-widget" data-widget="photo"><span class="photo-placeholder"><span>FOTO</span></span><span class="resize-handle resize-x" data-axis="x" aria-label="Allarga o restringi le foto"></span><span class="resize-handle resize-y" data-axis="y" aria-label="Allunga o accorcia le foto"></span><span class="resize-handle resize-corner" data-axis="both" aria-label="Ridimensiona le foto in larghezza e altezza"></span></div>
 <div class="device-widget calendar-widget" data-widget="calendar"><strong>Novembre 2026</strong><span class="calendar-preview-days">Lun&nbsp; Mar&nbsp; Mer&nbsp; Gio&nbsp; Ven&nbsp; Sab&nbsp; Dom</span><span class="calendar-preview-grid">1&nbsp; 2&nbsp; 3&nbsp; 4&nbsp; 5&nbsp; 6&nbsp; 7<br>8&nbsp; 9&nbsp; 10&nbsp; 11&nbsp; 12&nbsp; 13<br>15&nbsp; 16&nbsp; 17&nbsp; 18&nbsp; 19&nbsp; 20</span><span class="resize-handle resize-x" data-axis="x" aria-label="Allarga o restringi il calendario"></span><span class="resize-handle resize-y" data-axis="y" aria-label="Allunga o accorcia il calendario"></span><span class="resize-handle resize-corner" data-axis="both" aria-label="Ridimensiona il calendario in larghezza e altezza"></span></div>
