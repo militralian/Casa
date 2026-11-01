@@ -54,7 +54,7 @@ function L.build(state, width, height)
 
  if page=="home" then
   local frames=state.widget_layout or {
-   weather={x=0,y=0,w=46,h=46},photo={x=46,y=0,w=54,h=100},calendar={x=0,y=46,w=46,h=54},
+   weather={x=0,y=0,w=46,h=46},photo={x=46,y=0,w=54,h=100},calendar={x=0,y=46,w=46,h=54},timer={x=46,y=0,w=27,h=49},shopping={x=73,y=0,w=27,h=49},
   }
   local area={x=24,y=102,w=752,h=464}
   local function box(name)
@@ -118,9 +118,34 @@ function L.build(state, width, height)
    rect(x,y,w,h,true);rect(x+2,y+2,w-4,h-4,false)
    drawCalendar(x+5,y+5,w-10,h-10)
   end
+  local kitchen=state.kitchen_data or {}
+  if state.timer_enabled then
+   local x,y,w,h=box("timer")
+   rect(x,y,w,h,true);rect(x+2,y+2,w-4,h-4,false)
+   text(x+7,y+6,w-14,math.min(18,16*sx),"Timer cucina",true)
+   local remaining=math.max(0,tonumber(kitchen.timer_remaining_seconds) or tonumber(kitchen.timer_duration_seconds) or 600)
+   local timer_text=string.format("%02d:%02d",math.floor(remaining/60),remaining%60)
+   text(x+7,y+30,w-14,math.min(40,36*sx),timer_text,true,false,false,43)
+   local timer_status=kitchen.timer_running and "In corso" or remaining==0 and "Scaduto" or "Pronto"
+   text(x+7,y+h-27,w-14,14,timer_status,false)
+  end
+  if state.shopping_enabled then
+   local x,y,w,h=box("shopping")
+   rect(x,y,w,h,true);rect(x+2,y+2,w-4,h-4,false)
+   text(x+7,y+6,w-14,math.min(18,16*sx),"Lista della spesa",true)
+   local items=kitchen.shopping_items or {}
+   local row_h=math.max(18,math.min(27,(h-38)/5))
+   for i=1,math.min(#items,5) do
+    local item=items[i]
+    local mark=item.checked and "✓ " or "□ "
+    text(x+8,y+30+(i-1)*row_h,w-16,math.min(17,15*sx),mark..item.text,item.checked,item.checked,false,row_h)
+   end
+   if #items>5 then text(x+8,y+h-24,w-16,13,"+"..(#items-5).." altri",false) end
+   if #items==0 then text(x+8,y+33,w-16,15,"Lista vuota",false) end
+  end
   if state.menu_open then
    rect(28,105,322,446,true); rect(30,107,318,442,false)
-   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria"}
+   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria","Timer e lista"}
    for i,label in ipairs(labels) do
     local y=111+(i-1)*32
     local selected=i==state.selected
