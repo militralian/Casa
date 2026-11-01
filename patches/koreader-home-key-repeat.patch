@@ -1,0 +1,5 @@
+--- a/frontend/device/input.lua
++++ b/frontend/device/input.lua
+@@
+-        if keycode == "Up" or keycode == "Down" or keycode == "Left" or keycode == "Right"
++        if keycode == "Home" or keycode == "Up" or keycode == "Down" or keycode == "Left" or keycode == "Right"
