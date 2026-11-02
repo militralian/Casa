@@ -106,6 +106,7 @@ function Home:init()
  self:choosePhoto(0)
  self.state.photo_count=#self.photos
  self:loadGameList()
+ self:installStandbyPhotoHook()
   self.last_photo_change=os.time()
  self.key_events={
   MoveUp={{"Up"},event="Move",args=-1}, MoveDown={{"Down"},event="Move",args=1},
@@ -292,6 +293,32 @@ function Home:loadGameList()
  self.state.game_results=self.game_list
  self.state.game_selected=math.max(1,math.min(self.state.game_selected or 1,#self.state.game_results))
  self.state.game_scroll=1
+end
+function Home:installStandbyPhotoHook()
+ local Screensaver=require("ui/screensaver")
+ local original=Screensaver.setup
+ local home=self
+ self.screensaver_module=Screensaver
+ self.screensaver_setup_original=original
+ Screensaver.setup=function(widget,...)
+  local settings=G_reader_settings
+  local photo=not home.closed and not home.state.power_button_enabled and home.state.photo_file
+  if not photo or not settings then return original(widget,...) end
+  local keys={"screensaver_type","screensaver_document_cover","screensaver_show_message"}
+  local previous={}
+  for _,key in ipairs(keys) do previous[key]={exists=settings:has(key),value=settings:readSetting(key)} end
+  settings:saveSetting("screensaver_type","document_cover")
+  settings:saveSetting("screensaver_document_cover",photo)
+  settings:makeFalse("screensaver_show_message")
+  local result={pcall(original,widget,...)}
+  for _,key in ipairs(keys) do
+   local saved=previous[key]
+   if saved.exists then settings:saveSetting(key,saved.value) else settings:delSetting(key) end
+  end
+  if not result[1] then error(result[2]) end
+  return unpack(result,2)
+ end
+ self.screensaver_setup_wrapper=Screensaver.setup
 end
 
 function Home:updateNetworkStatus()
@@ -923,6 +950,9 @@ function Home:clearMemory()
 end
 function Home:onCloseWidget()
  self.closed=true
+ if self.screensaver_module and self.screensaver_module.setup==self.screensaver_setup_wrapper then
+  self.screensaver_module.setup=self.screensaver_setup_original
+ end
  if self.kindle_screensaver_prevented and not self.previous_keepalive then self:setKindleScreenSaverPrevented(false) end
  PluginShare.keepalive=self.previous_keepalive
  PluginShare.pause_auto_suspend=self.previous_pause_auto_suspend
