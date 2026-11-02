@@ -145,18 +145,18 @@ function L.build(state, width, height)
   end
   if state.menu_open then
    rect(28,105,322,446,true); rect(30,107,318,442,false)
-   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria","Timer e lista"}
+   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria","Timer e lista",state.server_enabled and "Server · acceso" or "Server · spento"}
    for i,label in ipairs(labels) do
-    local y=111+(i-1)*32
+    local y=111+(i-1)*29
     local selected=i==state.selected
-    if selected then rect(39,y-2,300,35,true) end
-    text(49,y,278,23,label,selected,selected,false,27)
+    if selected then rect(39,y-1,300,29,true) end
+    text(49,y,278,20,label,selected,selected,false,26)
    end
   end
   local events=M.agenda(state.agenda_text,now)
   if events[1] then text(30,559,340,15,"Prossimo: "..events[1].date:sub(9,10).."/"..events[1].date:sub(6,7).." · "..events[1].hour.." · "..events[1].title,false,false,false,24) end
   text(28,582,510,14,state.menu_open and "Su/giù: scegli · Centro: apri · Indietro: chiudi menu" or "Centro: menu · Frecce: galleria · Su/giù: meteo")
-  text(550,581,230,15,state.internet_online and state.upload_url and ("Config: "..state.upload_url) or "NO INTERNET FOUND",false)
+  text(550,581,230,15,state.server_enabled and state.upload_url and ("Config: "..state.upload_url) or state.server_enabled and "NO INTERNET FOUND" or "Server OFF",false)
  elseif page=="calendar" then
   local today=M.romeTime(now)
   local stamp=os.time{year=today.year,month=today.month+(state.calendar_month or 0),day=1,hour=12}
