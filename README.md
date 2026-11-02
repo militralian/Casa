@@ -50,3 +50,5 @@ Dopo una modifica al codice di **KindHome**, esegui lo strumento **KindHome Wi�
 - I server web partono spenti, si attivano dal menu Kindle e si chiudono dopo cinque minuti senza accessi.
 - Dal pannello web si può scegliere se mostrare i secondi nell’orologio; se attivi, il display si aggiorna ogni secondo.
 - Al risveglio dal tasto di accensione può aprire foto, calendario, meteo, timer o lista della spesa. Se l’opzione è spenta, lo standby mostra la foto corrente in modo statico.
+- Lo standby automatico è facoltativo, configurabile da 15 secondi a 60 minuti e attivo solo nella fascia oraria impostata, anche quando attraversa la mezzanotte.
+- Se si attiva l’azione speciale al risveglio, il Kindle mostra la schermata scelta: foto, calendario, meteo, timer o lista della spesa.
