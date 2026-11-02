@@ -79,6 +79,7 @@ function KitchenServer:start()
  if not server then self.error=err;return false end
  server:settimeout(0)
  self.listener=server
+ self.last_activity=os.time()
  if Device:isKindle() then
   os.execute("iptables -A INPUT -i wlan0 -p tcp --dport 8766 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT >/dev/null 2>&1; iptables -A OUTPUT -o wlan0 -p tcp --sport 8766 -m conntrack --ctstate ESTABLISHED -j ACCEPT >/dev/null 2>&1")
   self.firewall_open=true
@@ -116,6 +117,7 @@ function showError(e){shoppingStatus.dataset.kind='error';shoppingStatus.textCon
 end
 
 function KitchenServer:handle(client,header,body)
+ self.last_activity=os.time()
  local request=header:match("^([^\r\n]+)") or ""
  local method,path=request:match("^(%S+)%s+(%S+)")
  if method=="GET" and path=="/" then return response(client,"200 OK",self:page()) end
@@ -167,7 +169,10 @@ end
 function KitchenServer:poll()
  if not self.listener then return end
  local client=self.listener:accept()
- if client then client:settimeout(0);self.clients[#self.clients+1]={socket=client,buffer="",started=os.time()} end
+ if client then
+  self.last_activity=os.time()
+  client:settimeout(0);self.clients[#self.clients+1]={socket=client,buffer="",started=os.time()}
+ end
  for i=#self.clients,1,-1 do
   local item=self.clients[i]
   local data,err,partial=item.socket:receive(65536)
