@@ -47,6 +47,6 @@ Dopo una modifica al codice di **KindHome**, esegui lo strumento **KindHome Wi�
 
 - Permette di scegliere cosa mostrare quando si riattiva il Kindle con il tasto di accensione: presentazione, calendario grande, meteo, timer o lista della spesa.
 
-- All’avvio i server web sono spenti; si attivano dal menu Kindle e si spengono dopo cinque minuti senza richieste.
-- Il pannello web permette di mostrare o nascondere i secondi dell’orologio.
-- Consente di scegliere la schermata da mostrare al risveglio con il tasto di accensione: foto, calendario, meteo, timer o lista della spesa.
+- I server web partono spenti, si attivano dal menu Kindle e si chiudono dopo cinque minuti senza accessi.
+- Dal pannello web si può scegliere se mostrare i secondi nell’orologio; se attivi, il display si aggiorna ogni secondo.
+- Al risveglio dal tasto di accensione può aprire foto, calendario, meteo, timer o lista della spesa. Se l’opzione è spenta, lo standby mostra la foto corrente in modo statico.
