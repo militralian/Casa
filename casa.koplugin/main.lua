@@ -97,16 +97,26 @@ function Home:init()
  self.state.power_button_action=slideshow.power_button_action
  self.state.clock_seconds_enabled=slideshow.show_clock_seconds
  if self.state.clock_seconds_enabled then self.state.clock_text=string.format("%02d:%02d:%02d",rt.hour,rt.min,rt.sec) end
+ self.state.auto_standby_enabled=slideshow.auto_standby_enabled
+ self.state.auto_standby_delay=slideshow.auto_standby_delay_seconds
+ self.state.auto_standby_start=slideshow.auto_standby_start
+ self.state.auto_standby_end=slideshow.auto_standby_end
  self.state.server_enabled=false
  self.state.kitchen_data=nil
  self.kitchen_server=KitchenServer:new(ROOT.."/Casa/kitchen.json")
  self.state.page="home"
  self.last_input=os.time()
+ self.standby_task=function()
+  self.standby_due=nil
+  self:scheduleCasaStandby()
+ end
+ self:scheduleCasaStandby()
  self.state.photo_index=1
  self:choosePhoto(0)
  self.state.photo_count=#self.photos
  self:loadGameList()
  self:installStandbyPhotoHook()
+ self:installWakeEventHook()
   self.last_photo_change=os.time()
  self.key_events={
   MoveUp={{"Up"},event="Move",args=-1}, MoveDown={{"Down"},event="Move",args=1},
@@ -140,6 +150,12 @@ function Home:init()
   end
   local settings=self.photo_server and self.photo_server:getSlideshowSettings()
   if settings then
+   local standby_settings_changed=settings.auto_standby_enabled~=self.state.auto_standby_enabled
+    or settings.auto_standby_delay_seconds~=self.state.auto_standby_delay
+    or settings.auto_standby_start~=self.state.auto_standby_start
+    or settings.auto_standby_end~=self.state.auto_standby_end
+    or settings.power_button_enabled~=self.state.power_button_enabled
+   if standby_settings_changed then self.last_input=now;self.standby_triggered=false end
    local old_layout=self.state.widget_layout or {}
    local new_layout=settings.widget_layout or {}
    local layout_changed=false
@@ -177,6 +193,11 @@ function Home:init()
    self.state.power_button_enabled=settings.power_button_enabled
    self.state.power_button_action=settings.power_button_action
    if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
+   self.state.auto_standby_enabled=settings.auto_standby_enabled
+   self.state.auto_standby_delay=settings.auto_standby_delay_seconds
+   self.state.auto_standby_start=settings.auto_standby_start
+   self.state.auto_standby_end=settings.auto_standby_end
+   self:scheduleCasaStandby()
    if settings.screen_orientation~=self.state.screen_orientation then
     self.state.screen_orientation=settings.screen_orientation
     self:applyOrientation(settings.screen_orientation)
@@ -272,6 +293,13 @@ function Home:init()
     if kitchen_url then self.state.kitchen_url=kitchen_url end
    end
   end
+  local request_activity=math.max(self.photo_server and self.photo_server.last_activity or 0,self.kitchen_server and self.kitchen_server.last_activity or 0)
+  if self.state.server_enabled and request_activity>(self.last_seen_server_activity or 0) then
+   self.last_seen_server_activity=request_activity
+   self.last_input=os.time()
+   self.standby_triggered=false
+   self:scheduleCasaStandby()
+  end
   UIManager:scheduleIn(0.5,self.upload_tick)
  end
  self.clock_tick=function()
@@ -319,6 +347,20 @@ function Home:installStandbyPhotoHook()
   return unpack(result,2)
  end
  self.screensaver_setup_wrapper=Screensaver.setup
+end
+function Home:installWakeEventHook()
+ local original=UIManager.event_handlers and UIManager.event_handlers.OutOfSS
+ if type(original)~="function" then return end
+ local home=self
+ self.previous_outofss_handler=original
+ self.wake_event_wrapper=function(...)
+  local result={original(...)}
+  UIManager:scheduleIn(0.1,function()
+   if not home.closed then home:onResume() end
+  end)
+  return unpack(result)
+ end
+ UIManager.event_handlers.OutOfSS=self.wake_event_wrapper
 end
 
 function Home:updateNetworkStatus()
@@ -615,12 +657,21 @@ function Home:applyOrientation(orientation)
 end
 function Home:onResume()
  if self.closed then return true end
+ local resume_time=os.time()
+ if self.last_power_resume_time and resume_time-self.last_power_resume_time<2 then return true end
+ self.last_power_resume_time=resume_time
  self.last_input=os.time()
+ self.standby_triggered=false
  if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(true) end
  local settings=self.photo_server and self.photo_server:getSlideshowSettings()
  if settings then
   self.state.power_button_enabled=settings.power_button_enabled
   self.state.power_button_action=settings.power_button_action
+  self.state.auto_standby_enabled=settings.auto_standby_enabled
+  self.state.auto_standby_delay=settings.auto_standby_delay_seconds
+  self.state.auto_standby_start=settings.auto_standby_start
+  self.state.auto_standby_end=settings.auto_standby_end
+  self:scheduleCasaStandby()
   if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
  end
  local action=self.state.power_button_enabled and self.state.power_button_action or nil
@@ -658,7 +709,52 @@ function Home:onSetRotationMode(mode)
 end
 function Home:touchActivity()
  self.last_input=os.time()
+ self.standby_triggered=false
+ self:scheduleCasaStandby()
  if self.state.page=="photos" then self.state.page="home";self.state.photo_screensaver=false;self.last_photo_change=self.last_input end
+end
+function Home:scheduleCasaStandby()
+ if self.closed or not self.standby_task then return end
+ if not self.state.auto_standby_enabled or self.state.power_button_enabled or self.standby_triggered then
+  self.standby_window_active=false
+  UIManager:unschedule(self.standby_task)
+  self.standby_due=nil
+  return
+ end
+ local function minutes(value,fallback)
+  local hour,minute=(value or ""):match("^(%d%d):(%d%d)$")
+  hour,minute=tonumber(hour),tonumber(minute)
+  if not hour or not minute or hour>23 or minute>59 then return fallback end
+  return hour*60+minute
+ end
+ local current_time=Model.romeTime(os.time())
+ local current=current_time.hour*60+current_time.min
+ local start=minutes(self.state.auto_standby_start,0)
+ local finish=minutes(self.state.auto_standby_end,1439)
+ local in_window=start==finish or start<finish and current>=start and current<finish or start>finish and (current>=start or current<finish)
+ if not in_window then
+  self.standby_window_active=false
+  UIManager:unschedule(self.standby_task)
+  self.standby_due=nil
+  return
+ end
+ if not self.standby_window_active then
+  self.standby_window_active=true
+  self.last_input=os.time()
+  self.standby_triggered=false
+ end
+ local deadline=(self.last_input or os.time())+(tonumber(self.state.auto_standby_delay) or 300)
+ if self.standby_due==deadline then return end
+ UIManager:unschedule(self.standby_task)
+ self.standby_due=deadline
+ local remaining=deadline-os.time()
+ if remaining<=0 then
+  self.standby_due=nil
+  self.standby_triggered=true
+  UIManager:suspend()
+ else
+  UIManager:scheduleIn(remaining,self.standby_task)
+ end
 end
 function Home:loadPhotos()
  local files={}
@@ -806,7 +902,7 @@ function Home:onNext()
   self:repaint();return true
  end
  if self.state.page=="game_search" then self.state.game_letter_selected=math.min(#self.state.game_letters,(self.state.game_letter_selected or 1)+1);self:repaint();return true end
- if self.state.page=="photos" then self.last_input=os.time();self:nextPhoto(1); return true end
+ if self.state.page=="photos" then self:touchActivity();self:nextPhoto(1); return true end
  self:touchActivity()
  if self.state.page=="home" then self:startPhotos(); return true end
  if self.state.page=="agenda" then return self:onMove(1) end
@@ -821,7 +917,7 @@ function Home:onPrevious()
   self:repaint();return true
  end
  if self.state.page=="game_search" then self.state.game_letter_selected=math.max(1,(self.state.game_letter_selected or 1)-1);self:repaint();return true end
- if self.state.page=="photos" then self.last_input=os.time();self:nextPhoto(-1); return true end
+ if self.state.page=="photos" then self:touchActivity();self:nextPhoto(-1); return true end
  self:touchActivity()
  if self.state.page=="home" then self:startPhotos();return true end
  if self.state.page=="agenda" then return self:onMove(-1) end
@@ -837,7 +933,7 @@ function Home:openFolder(folder)
  end
 end
 function Home:onChoose()
- if self.state.page=="photos" then self.state.page="home"; self.state.photo_screensaver=false; self.last_input=os.time(); self:repaint(); return true end
+ if self.state.page=="photos" then self:touchActivity(); self.state.page="home"; self.state.photo_screensaver=false; self:repaint(); return true end
  self:touchActivity()
  if self.state.page=="game_search" then
   local chosen=self.state.game_letters[self.state.game_letter_selected or 1] or "Tutti"
@@ -893,7 +989,7 @@ function Home:onBack()
  return true
 end
 function Home:onRefresh()
- if self.state.page=="photos" then self.last_input=os.time();self:nextPhoto(1);return true end
+ if self.state.page=="photos" then self:touchActivity();self:nextPhoto(1);return true end
  if self.state.page=="games" then return true end
  self:touchActivity();self:refresh(true);return true
 end
@@ -953,6 +1049,9 @@ function Home:onCloseWidget()
  if self.screensaver_module and self.screensaver_module.setup==self.screensaver_setup_wrapper then
   self.screensaver_module.setup=self.screensaver_setup_original
  end
+ if UIManager.event_handlers and UIManager.event_handlers.OutOfSS==self.wake_event_wrapper then
+  UIManager.event_handlers.OutOfSS=self.previous_outofss_handler
+ end
  if self.kindle_screensaver_prevented and not self.previous_keepalive then self:setKindleScreenSaverPrevented(false) end
  PluginShare.keepalive=self.previous_keepalive
  PluginShare.pause_auto_suspend=self.previous_pause_auto_suspend
@@ -963,6 +1062,7 @@ function Home:onCloseWidget()
  UIManager:unschedule(self.tick)
  UIManager:unschedule(self.upload_tick)
  UIManager:unschedule(self.clock_tick)
+ UIManager:unschedule(self.standby_task)
  if self.game_tick then UIManager:unschedule(self.game_tick) end
  if self.photo_server then self.photo_server:close() end
  if self.kitchen_server then self.kitchen_server:close() end
