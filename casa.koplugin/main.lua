@@ -55,12 +55,8 @@ end
 local Home = InputContainer:extend{covers_fullscreen=true, modal=true}
 function Home:init()
  self.dimen=Geom:new{x=0,y=0,w=Device.screen:getWidth(),h=Device.screen:getHeight()}
- -- Casa is an always-on dashboard; inhibit KOReader's automatic system standby
- -- while this window is active. The physical power switch still works normally.
+ -- Keep Casa awake as requested; this is the largest remaining battery cost.
  self.standby_prevented=pcall(UIManager.preventStandby,UIManager)
- -- Keep powerd and KOReader AutoSuspend in sync. On Kindle, leaving
- -- preventScreenSaver active without PluginShare.keepalive can make the
- -- AutoSuspend T1 timer spin forever when powerd ignores a suspend request.
  self.previous_keepalive=PluginShare.keepalive
  self.previous_pause_auto_suspend=PluginShare.pause_auto_suspend
  PluginShare.keepalive=true
@@ -73,7 +69,7 @@ function Home:init()
  local power_ok,pct=pcall(function() return Device:getPowerDevice():getCapacityHW() end)
  if power_ok and type(pct)=="number" then self.state.battery_pct=math.max(0,math.min(100,math.floor(pct+0.5))) end
  local rt=Model.romeTime(os.time())
- self.state.clock_text=string.format("%02d:%02d:%02d",rt.hour,rt.min,rt.sec)
+ self.state.clock_text=string.format("%02d:%02d",rt.hour,rt.min)
  local ok,summary=pcall(json.decode,read(ROOT.."/casa/library-summary.json") or "{}")
  if ok and type(summary)=="table" and type(summary.count)=="number" then self.state.recipe_count=summary.count end
  self:loadPhotos()
@@ -99,6 +95,9 @@ function Home:init()
  self.state.screen_orientation=slideshow.screen_orientation
  self.state.power_button_enabled=slideshow.power_button_enabled
  self.state.power_button_action=slideshow.power_button_action
+ self.state.clock_seconds_enabled=slideshow.show_clock_seconds
+ if self.state.clock_seconds_enabled then self.state.clock_text=string.format("%02d:%02d:%02d",rt.hour,rt.min,rt.sec) end
+ self.state.server_enabled=false
  self.state.kitchen_data=nil
  self.kitchen_server=KitchenServer:new(ROOT.."/Casa/kitchen.json")
  self.state.page="home"
@@ -117,7 +116,7 @@ function Home:init()
  self.tick=function()
   if self.closed then return end
   local now=os.time()
-  if now-(self.last_network_check or 0)>=15 then
+  if now-(self.last_network_check or 0)>=60 then
    self.last_network_check=now
    self:updateNetworkStatus()
   end
@@ -176,6 +175,7 @@ function Home:init()
    self.state.widget_layout=settings.widget_layout
    self.state.power_button_enabled=settings.power_button_enabled
    self.state.power_button_action=settings.power_button_action
+   if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
    if settings.screen_orientation~=self.state.screen_orientation then
     self.state.screen_orientation=settings.screen_orientation
     self:applyOrientation(settings.screen_orientation)
@@ -186,7 +186,13 @@ function Home:init()
     self:repaint()
    end
   end
-  if self.kitchen_server then
+  if self.state.server_enabled then
+   local last_access=math.max(self.photo_server and self.photo_server.last_activity or 0,self.kitchen_server and self.kitchen_server.last_activity or 0)
+   if last_access>0 and now-last_access>=300 then
+    self:stopServices()
+   end
+  end
+  if self.kitchen_server and self.state.server_enabled then
    local kitchen=self.kitchen_server:getData()
    local previous=self.state.kitchen_data or {}
    if kitchen.updated_at~=previous.updated_at or kitchen.timer_remaining_seconds~=previous.timer_remaining_seconds or kitchen.timer_running~=previous.timer_running then
@@ -225,25 +231,31 @@ function Home:init()
    self:nextPhoto(1)
   end
   local rt=Model.romeTime(now)
-  self.state.clock_text=string.format("%02d:%02d:%02d",rt.hour,rt.min,rt.sec)
-  local power_ok,pct=pcall(function() return Device:getPowerDevice():getCapacityHW() end)
-  if power_ok and type(pct)=="number" then self.state.battery_pct=math.max(0,math.min(100,math.floor(pct+0.5))) end
-  if self.state.page~="photos" and self.state.page~="game" then
-   local sx=Device.screen:getWidth()/800
-   local sy=Device.screen:getHeight()/600
-  self:repaint(Geom:new{x=500*sx,y=0,w=300*sx,h=55*sy})
+  local minute_key=rt.year*100000000+rt.month*1000000+rt.day*10000+rt.hour*100+rt.min
+  if not self.state.clock_seconds_enabled and minute_key~=self.last_clock_minute then
+   self.last_clock_minute=minute_key
+   self.state.clock_text=string.format("%02d:%02d",rt.hour,rt.min)
+   self:repaint(Geom:new{x=430,y=0,w=370,h=55})
+  end
+  if now-(self.last_battery_check or 0)>=300 then
+   self.last_battery_check=now
+   local power_ok,pct=pcall(function() return Device:getPowerDevice():getCapacityHW() end)
+   if power_ok and type(pct)=="number" then
+    self.state.battery_pct=math.max(0,math.min(100,math.floor(pct+0.5)))
+    self:repaint(Geom:new{x=730,y=0,w=70,h=55})
+   end
   end
   -- Refresh live weather every minute while connected; failures retry after a minute.
-  if now-(self.last_weather_check or 0)>=60 then
+  if now-(self.last_weather_check or 0)>=900 then
    self.last_weather_check=now
    if require("ui/network/manager"):isConnected() then self:refresh(false) end
   end
-  UIManager:scheduleIn(1,self.tick)
+  UIManager:scheduleIn(10,self.tick)
  end
- UIManager:scheduleIn(1,self.tick)
+ UIManager:scheduleIn(10,self.tick)
  self.upload_tick=function()
   if self.closed then return end
-  if self.photo_server then
+  if self.state.server_enabled and self.photo_server then
    self.photo_server:poll()
    if os.time()-(self.last_ip_lookup or 0)>=15 then
     self.last_ip_lookup=os.time()
@@ -251,7 +263,7 @@ function Home:init()
     if current_url then self.state.upload_url=current_url end
    end
   end
-  if self.kitchen_server then
+  if self.state.server_enabled and self.kitchen_server then
    self.kitchen_server:poll()
    if os.time()-(self.last_kitchen_ip_lookup or 0)>=15 then
     self.last_kitchen_ip_lookup=os.time()
@@ -259,9 +271,19 @@ function Home:init()
     if kitchen_url then self.state.kitchen_url=kitchen_url end
    end
   end
-  UIManager:scheduleIn(0.25,self.upload_tick)
+  UIManager:scheduleIn(0.5,self.upload_tick)
  end
- UIManager:scheduleIn(0.25,self.upload_tick)
+ self.clock_tick=function()
+  if self.closed or not self.state.clock_seconds_enabled then return end
+  local current=Model.romeTime(os.time())
+  local value=string.format("%02d:%02d:%02d",current.hour,current.min,current.sec)
+  if value~=self.state.clock_text then
+   self.state.clock_text=value
+   self:repaint(Geom:new{x=430,y=0,w=300,h=55})
+  end
+  UIManager:scheduleIn(1,self.clock_tick)
+ end
+ if self.state.clock_seconds_enabled then UIManager:scheduleIn(1,self.clock_tick) end
  self.last_weather_check=os.time()
 end
 
@@ -568,6 +590,12 @@ function Home:onResume()
  if self.closed then return true end
  self.last_input=os.time()
  if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(true) end
+ local settings=self.photo_server and self.photo_server:getSlideshowSettings()
+ if settings then
+  self.state.power_button_enabled=settings.power_button_enabled
+  self.state.power_button_action=settings.power_button_action
+  if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
+ end
  local action=self.state.power_button_enabled and self.state.power_button_action or nil
  if action then
   self.state.menu_open=false
@@ -623,7 +651,8 @@ function Home:loadPhotos()
  self.state.photo_count=#files
 end
 function Home:startServices()
- if self.closed or self.services_started then return end
+ if self.closed then return end
+ if self.state.server_enabled then return end
  self.services_started=true
  -- The Kindle power daemon has a separate inactivity screen saver. KOReader's
  -- standby lock alone does not suppress that Kindle 4 screen transition.
@@ -636,7 +665,43 @@ function Home:startServices()
   self.state.kitchen_url=self.kitchen_server:getURL()
   self.last_kitchen_ip_lookup=0
  end
+ self.state.server_enabled=(self.photo_server and self.photo_server.listener~=nil) or (self.kitchen_server and self.kitchen_server.listener~=nil) or false
+ self.last_server_activity=os.time()
+ if self.state.server_enabled then self:setKindleScreenSaverPrevented(true) end
+ if self.state.server_enabled then UIManager:scheduleIn(0.1,self.upload_tick) end
  self:repaint()
+end
+function Home:stopServices()
+ if self.photo_server then self.photo_server:close() end
+ if self.kitchen_server then self.kitchen_server:close() end
+ UIManager:unschedule(self.upload_tick)
+ self.state.server_enabled=false
+ self.state.upload_url=nil
+ self.state.kitchen_url=nil
+ self.services_started=false
+ self:repaint()
+end
+function Home:toggleServices()
+ if self.state.server_enabled then
+  self:stopServices()
+  UIManager:show(InfoMessage:new{text="Server spento."})
+ else
+  self:startServices()
+  UIManager:show(InfoMessage:new{text=self.state.server_enabled and "Server attivo. Il link è in basso a destra; si spegnerà dopo 5 minuti senza richieste." or "Non riesco ad avviare il server. Controlla che il Wi-Fi sia attivo."})
+ end
+end
+function Home:setClockSecondsVisible(enabled)
+ self.state.clock_seconds_enabled=enabled==true
+ if self.clock_tick then UIManager:unschedule(self.clock_tick) end
+ local current=Model.romeTime(os.time())
+ if self.state.clock_seconds_enabled then
+  self.state.clock_text=string.format("%02d:%02d:%02d",current.hour,current.min,current.sec)
+  if self.clock_tick then UIManager:scheduleIn(1,self.clock_tick) end
+ else
+  self.state.clock_text=string.format("%02d:%02d",current.hour,current.min)
+  self.last_clock_minute=current.year*100000000+current.month*1000000+current.day*10000+current.hour*100+current.min
+ end
+ self:repaint(Geom:new{x=430,y=0,w=300,h=55})
 end
 function Home:setKindleScreenSaverPrevented(prevent)
  local value=prevent and "1" or "0"
@@ -679,7 +744,7 @@ function Home:choosePhoto(delta)
 end
 function Home:onMove(delta)
  self:touchActivity()
- if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%14)+1
+ if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%15)+1
  elseif self.state.page=="games" then
   self.state.game_selected=math.max(1,math.min(#self.state.game_results,(self.state.game_selected or 1)+delta))
  elseif self.state.page=="game_search" then
@@ -785,7 +850,8 @@ function Home:onChoose()
    os.execute("sleep 1 && reboot &")
   end})
  elseif choice==13 then self:clearMemory()
- elseif choice==14 then UIManager:show(InfoMessage:new{text=self.state.kitchen_url and ("Apri dal telefono "..self.state.kitchen_url.." per usare il timer e la lista della spesa. Kindle e telefono devono essere sulla stessa Wi-Fi.") or "Connetti Kindle alla Wi-Fi e riapri Casa per attivare il pannello Cucina sulla porta 8766."})
+ elseif choice==14 then UIManager:show(InfoMessage:new{text=self.state.kitchen_url and ("Apri dal telefono "..self.state.kitchen_url.." per usare il timer e la lista della spesa. Kindle e telefono devono essere sulla stessa Wi-Fi.") or "Attiva il server dal menu Casa per aprire il pannello Cucina sulla rete Wi-Fi."})
+ elseif choice==15 then self:toggleServices()
  end
  return true
 end
@@ -866,6 +932,7 @@ function Home:onCloseWidget()
  end
  UIManager:unschedule(self.tick)
  UIManager:unschedule(self.upload_tick)
+ UIManager:unschedule(self.clock_tick)
  if self.game_tick then UIManager:unschedule(self.game_tick) end
  if self.photo_server then self.photo_server:close() end
  if self.kitchen_server then self.kitchen_server:close() end
@@ -931,7 +998,7 @@ function Casa:showHome()
  local home=Home:new{owner=self}
  home.last_input=os.time()
  UIManager:show(home)
- UIManager:scheduleIn(0.1,function() home:startServices() end)
+ -- Web servers deliberately start disabled; open the Casa menu to enable them.
  UIManager:scheduleIn(0.35,function() if not home.closed then home:applyOrientation(home.state.screen_orientation) end end)
  local data=home.state.data
  if not data or os.time()-(data.fetched_at or 0)>3600 then
