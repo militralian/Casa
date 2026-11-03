@@ -1,0 +1,8 @@
+#!/bin/sh
+# Creates the Mac's SSH key for the Kindle and installs its public half in the plugin.
+# Both stay out of git (see .gitignore); run once, then copy Casa to the Kindle.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$ROOT/chiavi"
+[ -f "$ROOT/chiavi/kindle_casa" ] || ssh-keygen -q -t rsa -b 3072 -N "" -C "kindhome" -f "$ROOT/chiavi/kindle_casa"
+cp "$ROOT/chiavi/kindle_casa.pub" "$ROOT/casa.koplugin/authorized_keys"
+echo "Chiave pronta: $ROOT/chiavi/kindle_casa"

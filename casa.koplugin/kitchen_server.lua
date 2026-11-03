@@ -1,12 +1,14 @@
 local socket=require("socket")
 local json=require("json")
 local Device=require("device")
+local I18N=require("casa_i18n")
 
 local KitchenServer={}
 KitchenServer.__index=KitchenServer
 
 local function response(client,status,body,content_type)
  body=body or ""
+ if content_type and content_type:find("^text/plain") then body=I18N.tr(body) end
  local message="HTTP/1.1 "..status.."\r\nContent-Type: "..(content_type or "text/html; charset=utf-8")
   .."\r\nContent-Length: "..#body.."\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\n\r\n"..body
  pcall(function()
@@ -96,7 +98,7 @@ function KitchenServer:getURL()
 end
 
 function KitchenServer:page()
- return [[<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#eff7fb"><title>KindHome · Cucina</title>
+ return I18N.page("kitchen",[[<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#eff7fb"><title>KindHome · Cucina</title>
 <style>
 :root{color-scheme:light;--paper:#eff7fb;--surface:#fff;--ink:#203746;--muted:#587180;--line:#d5e5ed;--blue:#3a8fb8;--blue-dark:#236d94;--blue-pale:#e5f2f8;--error:#a33c35;--success:#286d55}
 *{box-sizing:border-box}html{min-height:100%;background:var(--paper)}body{margin:0;min-height:100vh;padding:max(18px,env(safe-area-inset-top)) 14px max(24px,env(safe-area-inset-bottom));font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}main{width:min(100%,520px);margin:0 auto}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:3px 2px 22px}.brand{font:700 15px Georgia,serif;color:var(--blue-dark)}.online{font-size:12px;color:var(--muted)}h1{margin:0;font:600 32px/1.1 Georgia,"Times New Roman",serif;letter-spacing:-.025em}.lede{margin:8px 0 22px;color:var(--muted);font-size:14px}.section{padding:18px 0;border-top:1px solid var(--line)}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}.section h2{margin:0;font-size:17px;line-height:1.25}.timer-display{margin:4px 0 16px;text-align:center;font-variant-numeric:tabular-nums;font-size:clamp(58px,18vw,78px);line-height:1;font-weight:650;letter-spacing:-.045em}.timer-state{min-height:19px;margin:-8px 0 13px;text-align:center;color:var(--muted);font-size:13px}.timer-state[data-kind="error"],.status[data-kind="error"]{color:var(--error)}.timer-state[data-kind="success"],.status[data-kind="success"]{color:var(--success)}.controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}.controls button{min-height:48px}.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.preset{min-height:42px;background:var(--surface);color:var(--blue-dark);border:1px solid var(--line)}.preset[aria-pressed="true"]{background:var(--blue-pale);border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}.custom-time{display:flex;align-items:center;gap:8px;margin-top:11px}.custom-time label{color:var(--muted);font-size:13px}.custom-time input{width:82px;min-height:42px}.custom-time button{min-height:42px;flex:1}.shopping-form{display:grid;grid-template-columns:1fr auto;gap:8px}.shopping-form input{min-width:0}.shopping-form button{min-width:92px}.shopping-list{list-style:none;margin:12px 0 0;padding:0}.shopping-list li{display:grid;grid-template-columns:28px 1fr 40px;align-items:center;gap:8px;min-height:48px;border-bottom:1px solid var(--line)}.shopping-list li span{overflow-wrap:anywhere}.shopping-list li.checked span{color:var(--muted);text-decoration:line-through}.check{width:24px;height:24px;accent-color:var(--blue)}.remove{width:38px;height:38px;min-height:38px;padding:0;background:transparent;color:var(--muted);font-size:20px}.empty{padding:15px 0;color:var(--muted);font-size:14px}.foot{margin-top:16px;color:var(--muted);font-size:12px}.status{min-height:20px;margin:10px 0 0;color:var(--muted);font-size:13px}
@@ -113,7 +115,7 @@ function updateTimer(action,seconds){state.dataset.kind='';request('/timer',{act
 startPause.addEventListener('click',function(){updateTimer(timer.running?'pause':'start')});document.getElementById('reset').addEventListener('click',function(){updateTimer('reset')});document.querySelectorAll('[data-minutes]').forEach(function(b){b.addEventListener('click',function(){var n=Number(b.dataset.minutes);minutes.value=n;updateTimer('set',n*60)})});document.getElementById('duration-form').addEventListener('submit',function(e){e.preventDefault();var n=Math.max(1,Math.min(1440,Number(minutes.value)||10));minutes.value=n;updateTimer('set',n*60)});
 function renderItems(){list.textContent='';if(!items.length){var empty=document.createElement('li');empty.className='empty';empty.textContent='La lista è vuota. Aggiungi il primo prodotto.';list.appendChild(empty);return}items.forEach(function(item){var row=document.createElement('li');if(item.checked)row.className='checked';var check=document.createElement('input');check.type='checkbox';check.className='check';check.checked=item.checked;check.setAttribute('aria-label','Segna '+item.text+' come acquistato');check.addEventListener('change',function(){request('/shopping',{action:'toggle',id:item.id,checked:check.checked}).then(load).catch(showError)});var name=document.createElement('span');name.textContent=item.text;var remove=document.createElement('button');remove.type='button';remove.className='remove';remove.textContent='×';remove.setAttribute('aria-label','Rimuovi '+item.text);remove.addEventListener('click',function(){request('/shopping',{action:'remove',id:item.id}).then(load).catch(showError)});row.append(check,name,remove);list.appendChild(row)})}
 function showError(e){shoppingStatus.dataset.kind='error';shoppingStatus.textContent=e.message||'Non riesco a salvare. Riprova.'}document.getElementById('shopping-form').addEventListener('submit',function(e){e.preventDefault();var input=document.getElementById('item-text'),value=input.value.trim();if(!value)return;input.disabled=true;request('/shopping',{action:'add',text:value}).then(function(){input.value='';shoppingStatus.dataset.kind='success';shoppingStatus.textContent='Aggiunto alla lista.';load()}).catch(showError).finally(function(){input.disabled=false;input.focus()})});document.getElementById('clear-checked').addEventListener('click',function(){request('/shopping',{action:'clear_checked'}).then(load).catch(showError)});setInterval(function(){if(timer.running&&timer.end&&Date.now()/1000>=timer.end){timer.running=false;timer.remaining=0;timer.end=0;state.dataset.kind='success';state.textContent='Tempo scaduto.';request('/timer',{action:'expire'}).catch(function(){})}draw()},250);setInterval(load,5000);load()})();
-</script></body></html>]]
+</script></body></html>]])
 end
 
 function KitchenServer:handle(client,header,body)
@@ -124,11 +126,11 @@ function KitchenServer:handle(client,header,body)
  if method=="GET" and path=="/data" then return response(client,"200 OK",json.encode(self:getData()),"application/json; charset=utf-8") end
  if method=="POST" and path=="/timer" then
   local ok,payload=pcall(json.decode,body or "")
-  if not ok or type(payload)~="table" then return response(client,"400 Bad Request",json.encode({error="Richiesta non valida"}),"application/json") end
+  if not ok or type(payload)~="table" then return response(client,"400 Bad Request",json.encode({error=I18N.tr("Richiesta non valida")}),"application/json") end
   local data=self:getData();local action=payload.action
   if action=="set" then
    local seconds=math.floor(tonumber(payload.seconds) or data.timer_duration_seconds)
-   if seconds<60 or seconds>86400 then return response(client,"400 Bad Request",json.encode({error="Imposta una durata tra 1 minuto e 24 ore."}),"application/json") end
+   if seconds<60 or seconds>86400 then return response(client,"400 Bad Request",json.encode({error=I18N.tr("Imposta una durata tra 1 minuto e 24 ore.")}),"application/json") end
    data.timer_duration_seconds=seconds;data.timer_remaining_seconds=seconds;data.timer_running=false;data.timer_end_time=0
   elseif action=="start" then
    if data.timer_remaining_seconds<=0 then data.timer_remaining_seconds=data.timer_duration_seconds end
@@ -139,18 +141,18 @@ function KitchenServer:handle(client,header,body)
    data.timer_remaining_seconds=data.timer_duration_seconds;data.timer_end_time=0;data.timer_running=false
   elseif action=="expire" then
    data.timer_remaining_seconds=0;data.timer_end_time=0;data.timer_running=false
-  else return response(client,"400 Bad Request",json.encode({error="Azione timer non riconosciuta."}),"application/json") end
-  if not self:writeData(data) then return response(client,"507 Insufficient Storage",json.encode({error="Non riesco a salvare il timer sul Kindle."}),"application/json") end
+  else return response(client,"400 Bad Request",json.encode({error=I18N.tr("Azione timer non riconosciuta.")}),"application/json") end
+  if not self:writeData(data) then return response(client,"507 Insufficient Storage",json.encode({error=I18N.tr("Non riesco a salvare il timer sul Kindle.")}),"application/json") end
   return response(client,"200 OK",json.encode(self:getData()),"application/json; charset=utf-8")
  end
  if method=="POST" and path=="/shopping" then
   local ok,payload=pcall(json.decode,body or "")
-  if not ok or type(payload)~="table" then return response(client,"400 Bad Request",json.encode({error="Richiesta non valida"}),"application/json") end
+  if not ok or type(payload)~="table" then return response(client,"400 Bad Request",json.encode({error=I18N.tr("Richiesta non valida")}),"application/json") end
   local data=self:getData();local action=payload.action
   if action=="add" then
    local text=type(payload.text)=="string" and payload.text:gsub("[%z\1-\31]"," "):gsub("^%s+",""):gsub("%s+$",""):sub(1,72) or ""
-   if text=="" then return response(client,"400 Bad Request",json.encode({error="Scrivi il nome di un prodotto."}),"application/json") end
-   if #data.shopping_items>=100 then return response(client,"400 Bad Request",json.encode({error="La lista è piena: rimuovi qualche prodotto."}),"application/json") end
+   if text=="" then return response(client,"400 Bad Request",json.encode({error=I18N.tr("Scrivi il nome di un prodotto.")}),"application/json") end
+   if #data.shopping_items>=100 then return response(client,"400 Bad Request",json.encode({error=I18N.tr("La lista è piena: rimuovi qualche prodotto.")}),"application/json") end
    self.item_seq=self.item_seq+1
    data.shopping_items[#data.shopping_items+1]={id=tostring(os.time()).."-"..tostring(self.item_seq),text=text,checked=false}
   elseif action=="toggle" then
@@ -159,8 +161,8 @@ function KitchenServer:handle(client,header,body)
    for i=#data.shopping_items,1,-1 do if data.shopping_items[i].id==payload.id then table.remove(data.shopping_items,i);break end end
   elseif action=="clear_checked" then
    for i=#data.shopping_items,1,-1 do if data.shopping_items[i].checked then table.remove(data.shopping_items,i) end end
-  else return response(client,"400 Bad Request",json.encode({error="Azione lista non riconosciuta."}),"application/json") end
-  if not self:writeData(data) then return response(client,"507 Insufficient Storage",json.encode({error="Non riesco a salvare la lista sul Kindle."}),"application/json") end
+  else return response(client,"400 Bad Request",json.encode({error=I18N.tr("Azione lista non riconosciuta.")}),"application/json") end
+  if not self:writeData(data) then return response(client,"507 Insufficient Storage",json.encode({error=I18N.tr("Non riesco a salvare la lista sul Kindle.")}),"application/json") end
   return response(client,"200 OK",json.encode(self:getData()),"application/json; charset=utf-8")
  end
  return response(client,"404 Not Found","Pagina non trovata","text/plain; charset=utf-8")
@@ -181,7 +183,7 @@ function KitchenServer:poll()
   if sep and not item.header then
    item.header=item.buffer:sub(1,sep-1);item.body_start=sep+4
    item.expected=tonumber(item.header:match("[Cc]ontent%-[Ll]ength:%s*(%d+)")) or 0
-   if item.expected>128*1024 then response(item.socket,"413 Payload Too Large",json.encode({error="Richiesta troppo grande"}),"application/json");table.remove(self.clients,i);item=nil
+   if item.expected>128*1024 then response(item.socket,"413 Payload Too Large",json.encode({error=I18N.tr("Richiesta troppo grande")}),"application/json");table.remove(self.clients,i);item=nil
    elseif item.expected==0 then self:handle(item.socket,item.header,"");table.remove(self.clients,i);item=nil end
   end
   if item and item.header and #item.buffer-item.body_start+1>=item.expected then

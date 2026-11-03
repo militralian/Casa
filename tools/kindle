@@ -1,0 +1,40 @@
+#!/bin/sh
+# Comandi Mac -> Kindle via Wi-Fi.  Uso: tools/kindle [riavvia|riavvia-casa|aggiorna|stato|log|shell [CMD]|invia FILE [CARTELLA]|scarica PERCORSO]
+# English: reboot | restart-home | update | status | log | shell [CMD] | send FILE [FOLDER] | fetch PATH
+# Indirizzo: variabile KINDLE_IP, altrimenti wifi-device-url.txt nella radice del repository.
+# Chiave SSH: chiavi/kindle_casa (creala con tools/crea-chiave; non va mai nel repository).
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+IP="${KINDLE_IP:-$(sed -E 's#^https?://##; s#[:/].*$##' "$ROOT/wifi-device-url.txt" 2>/dev/null)}"
+[ -n "$IP" ] || { echo "Indica l'indirizzo del Kindle: KINDLE_IP=192.168.x.x tools/kindle $1"; exit 1; }
+KEY="$ROOT/chiavi/kindle_casa"
+KNOWN="$ROOT/chiavi/known_hosts"
+OPT="-i $KEY -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa"
+k() { ssh $OPT -p 2222 root@"$IP" "$@"; }
+http() {
+ curl -fsS -m 8 -X POST -H "X-Casa-Update-Key: $(cat "$ROOT/wifi-update-key.txt")" "http://$IP:8765/$1"
+}
+case "$1" in
+ riavvia|reboot)
+  k 'sync; (sleep 1; reboot) >/dev/null 2>&1 &' && echo "Kindle in riavvio." && exit 0
+  echo "SSH non risponde, provo dal server di Casa…"; http reboot && echo && echo "Kindle in riavvio." ;;
+ riavvia-casa|restart-home)
+  # Casa checks this flag every 10 s; the HTTP route only works while Casa's server is on.
+  k 'touch /tmp/casa-restart' && echo "Casa si riavvia entro 10 secondi." && exit 0
+  echo "SSH non risponde, provo dal server di Casa…"; http restart-casa && echo && echo "Casa si riavvia." ;;
+ aggiorna|update)
+  for f in "$ROOT"/casa.koplugin/*.sh; do sh -n "$f" || { echo "Errore in $f: aggiornamento annullato."; exit 1; }; done
+  if command -v luac >/dev/null 2>&1; then
+   for f in "$ROOT"/casa.koplugin/*.lua; do luac -p "$f" || { echo "Errore in $f: aggiornamento annullato."; exit 1; }; done
+  fi
+  # sftp into the parent folder merges cleanly (giving the plugin folder itself as target would nest a copy).
+  printf 'put -r "%s" /mnt/us/koreader/plugins\n' "$ROOT/casa.koplugin" | sftp -q -b - $OPT -P 2222 root@"$IP" >/dev/null \
+   && k 'touch /tmp/casa-restart' && echo "Casa aggiornata: si riavvia entro 10 secondi." ;;
+ shell) shift; k "$@" ;;
+ log) k 'tail -40 /mnt/us/koreader/crash.log; echo; cat /mnt/us/casa/wifi-diag.log' ;;
+ stato|status) k 'echo "Wi-Fi: $(lipc-get-prop com.lab126.wifid cmState)"; echo "Batteria: $(cat /sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity)"; uptime; df -h /mnt/us | tail -1' ;;
+ invia|send) [ -n "$2" ] || { echo "Uso: tools/kindle invia FILE [cartella sul Kindle, es. /mnt/us/documents]"; exit 1; }
+  scp -O -P 2222 $OPT "$2" root@"$IP":"${3:-/mnt/us/documents}/" ;;
+ scarica|fetch) [ -n "$2" ] || { echo "Uso: tools/kindle scarica /mnt/us/percorso"; exit 1; }
+  scp -O -P 2222 $OPT root@"$IP":"$2" . ;;
+ *) sed -n 2,4p "$0" ;;
+esac

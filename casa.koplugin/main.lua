@@ -7,8 +7,20 @@ local Geom = require("ui/geometry")
 local Font = require("ui/font")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local ImageWidget = require("ui/widget/imagewidget")
+local RenderImage = require("ui/renderimage")
 local BB = require("ffi/blitbuffer")
-local InfoMessage = require("ui/widget/infomessage")
+local I18N = require("casa_i18n")
+-- Dialog texts are translated when shown (see casa_i18n).
+local InfoMessage = {new=function(_, o)
+ o.text=I18N.tr(o.text)
+ return require("ui/widget/infomessage"):new(o)
+end}
+local ConfirmBox = {new=function(_, o)
+ o.text=I18N.tr(o.text)
+ if o.ok_text then o.ok_text=I18N.tr(o.ok_text) end
+ if o.cancel_text then o.cancel_text=I18N.tr(o.cancel_text) end
+ return require("ui/widget/confirmbox"):new(o)
+end}
 local Model = require("casa_model")
 local Layout = require("casa_layout")
 local PhotoServer = require("photo_server")
@@ -17,9 +29,25 @@ local json = require("json")
 local lfs = require("libs/libkoreader-lfs")
 local ROOT = "/mnt/us"
 local CACHE = ROOT.."/koreader/settings/casa-weather.json"
+local BATTERY_USAGE = ROOT.."/koreader/settings/casa-battery-usage.json"
 local PHOTO_DIR = ROOT.."/Casa/Foto"
 local GAMES_DIR = ROOT.."/Casa/Games"
 local ROM_DIR = GAMES_DIR.."/ROMs"
+-- On Kindle 4 (FW 4.x) the Wi-Fi driver never reports operstate "up", so KOReader thinks every
+-- connection failed and turns Wi-Fi off after 45 s. Ask wifid directly when sysfs says no.
+do
+ local NetworkMgr=require("ui/network/manager")
+ if Device:isKindle() and not NetworkMgr.casa_wifid_check then
+  local sysfs_connected=NetworkMgr.isConnected
+  NetworkMgr.isConnected=function(mgr)
+   if sysfs_connected and sysfs_connected(mgr) then return true end
+   local p=io.popen("lipc-get-prop com.lab126.wifid cmState 2>/dev/null")
+   local state=p and p:read("*l");if p then p:close() end
+   return state=="CONNECTED"
+  end
+  NetworkMgr.casa_wifid_check=true
+ end
+end
 local function read(path)
  local f=io.open(path,"rb"); if not f then return nil end
  local v=f:read("*a"); f:close(); return v
@@ -56,18 +84,28 @@ local Home = InputContainer:extend{covers_fullscreen=true, modal=true}
 function Home:init()
  self.dimen=Geom:new{x=0,y=0,w=Device.screen:getWidth(),h=Device.screen:getHeight()}
  -- Keep Casa awake as requested; this is the largest remaining battery cost.
- self.standby_prevented=pcall(UIManager.preventStandby,UIManager)
+ self.standby_prevented=false
  self.previous_keepalive=PluginShare.keepalive
  self.previous_pause_auto_suspend=PluginShare.pause_auto_suspend
- PluginShare.keepalive=true
- PluginShare.pause_auto_suspend=true
- self:setKindleScreenSaverPrevented(true)
  self.state={page="home",selected=1,game_selected=1,data=decode(read(CACHE)),agenda_page=0,
   agenda_text=read(ROOT.."/documents/Appunti/Agenda.txt"),game_filter="Tutti",
   calendar_month=0,night_active=false,
   game_letters={"Tutti","0–9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"}}
  local power_ok,pct=pcall(function() return Device:getPowerDevice():getCapacityHW() end)
  if power_ok and type(pct)=="number" then self.state.battery_pct=math.max(0,math.min(100,math.floor(pct+0.5))) end
+ local charging_ok,charging=pcall(function() return Device:getPowerDevice():isCharging() end)
+ self.state.battery_charging=charging_ok and charging==true
+ self.battery_usage={rates={}}
+ self.battery_observation=nil
+ local battery_raw=read(BATTERY_USAGE)
+ if battery_raw then
+  local battery_ok,battery_data=pcall(json.decode,battery_raw)
+  if battery_ok and type(battery_data)=="table" then
+   if type(battery_data.rates)=="table" then self.battery_usage=battery_data end
+   if type(battery_data.observation)=="table" then self.battery_observation=battery_data.observation end
+  end
+ end
+ self.state.battery_estimate_text="Calibro"
  local rt=Model.romeTime(os.time())
  self.state.clock_text=string.format("%02d:%02d",rt.hour,rt.min)
  local ok,summary=pcall(json.decode,read(ROOT.."/casa/library-summary.json") or "{}")
@@ -75,7 +113,30 @@ function Home:init()
  self:loadPhotos()
  self.photo_server=PhotoServer:new(PHOTO_DIR,ROOT.."/Casa/intervallo-foto.txt",
   ROOT.."/koreader/plugins/casa.koplugin",ROOT.."/Casa/casa-update-key.txt",GAMES_DIR)
+ self.photo_server.network_manager=require("ui/network/manager")
+ -- Make sure the radio is on (not in airplane mode) every time Casa opens.
+ os.execute("(/bin/sh "..ROOT.."/koreader/plugins/casa.koplugin/wifi-fix.sh >"..ROOT.."/casa/wifi-diag.log 2>&1) &")
+ -- SFTP/SSH on port 2222 (key-only), so files and restarts work over Wi-Fi with Casa open.
+ os.execute("/bin/sh "..ROOT.."/koreader/plugins/casa.koplugin/sftp.sh start >/dev/null 2>&1")
+ self.state.photo_display_settings=self.photo_server:getPhotoSettings()
+ self.last_seen_photo_settings_seq=self.photo_server.photo_settings_seq or 0
+ self.photo_server.home_preview=function()
+  if self.closed or self.state.page~="home" or self.state.menu_open then return nil end
+  local path="/tmp/kindhome-home-preview.png"
+  local screen=Device.screen
+  local ok=pcall(screen.shot,screen,path)
+  if not ok then return nil end
+  local f=io.open(path,"rb")
+  if not f then return nil end
+  local image=f:read("*a");f:close()
+  return image
+ end
  local slideshow=self.photo_server:getSlideshowSettings()
+ self.state.home_name=slideshow.home_name or "Casa"
+ self.state.language=I18N.set(slideshow.language)
+ self.state.language_setting=slideshow.language or "auto"
+ self.state.weather_place=slideshow.weather_place
+ self.state.weather_place_name=slideshow.weather_place and slideshow.weather_place.name
  self.state.photo_interval=slideshow.interval_seconds
  self.state.timer_enabled=slideshow.timer_enabled
  self.state.shopping_enabled=slideshow.shopping_enabled
@@ -95,6 +156,10 @@ function Home:init()
  self.state.screen_orientation=slideshow.screen_orientation
  self.state.power_button_enabled=slideshow.power_button_enabled
  self.state.power_button_action=slideshow.power_button_action
+ self.state.standby_action=slideshow.standby_action or "last_photo"
+ self.state.standby_orientation=slideshow.standby_orientation or "auto"
+ self.state.standby_interval=slideshow.standby_interval_seconds or 120
+ self:setWakeStandbyPolicy(self.state.power_button_enabled)
  self.state.clock_seconds_enabled=slideshow.show_clock_seconds
  if self.state.clock_seconds_enabled then self.state.clock_text=string.format("%02d:%02d:%02d",rt.hour,rt.min,rt.sec) end
  self.state.auto_standby_enabled=slideshow.auto_standby_enabled
@@ -102,6 +167,9 @@ function Home:init()
  self.state.auto_standby_start=slideshow.auto_standby_start
  self.state.auto_standby_end=slideshow.auto_standby_end
  self.state.server_enabled=false
+ self.state.server_mode=slideshow.server_mode or "off"
+ self.state.battery_display_mode=slideshow.battery_display_mode or "percent_time"
+ self:updateBatteryEstimateLabel(false)
  self.state.kitchen_data=nil
  self.kitchen_server=KitchenServer:new(ROOT.."/Casa/kitchen.json")
  self.state.page="home"
@@ -148,8 +216,22 @@ function Home:init()
     end
    end
   end
+  if self.photo_server and (self.photo_server.photo_settings_seq or 0)~=(self.last_seen_photo_settings_seq or 0) then
+   self.last_seen_photo_settings_seq=self.photo_server.photo_settings_seq or 0
+   self.state.photo_display_settings=self.photo_server:getPhotoSettings()
+   self.photo_widget_key=nil
+   if self.state.page=="home" or self.state.page=="photos" then self:repaint() end
+  end
   local settings=self.photo_server and self.photo_server:getSlideshowSettings()
   if settings then
+   if settings.server_mode~=self.state.server_mode then
+    self.state.server_mode=settings.server_mode or "off"
+    if self.state.server_mode=="off" and self.state.server_enabled then
+     self:stopServices()
+    elseif self.state.server_mode=="always" and not self.state.server_enabled then
+     self:startServices()
+    end
+   end
    local standby_settings_changed=settings.auto_standby_enabled~=self.state.auto_standby_enabled
     or settings.auto_standby_delay_seconds~=self.state.auto_standby_delay
     or settings.auto_standby_start~=self.state.auto_standby_start
@@ -170,6 +252,29 @@ function Home:init()
     or settings.photo_enabled~=self.state.photo_enabled
     or settings.timer_enabled~=self.state.timer_enabled
     or settings.shopping_enabled~=self.state.shopping_enabled
+   local battery_display_changed=settings.battery_display_mode~=self.state.battery_display_mode
+   local home_name_changed=(settings.home_name or "Casa")~=self.state.home_name
+   self.state.home_name=settings.home_name or "Casa"
+   local language=I18N.set(settings.language)
+   if language~=self.state.language or (settings.language or "auto")~=self.state.language_setting then
+    self.state.language=language;self.state.language_setting=settings.language or "auto"
+    pcall(function() G_reader_settings:saveSetting("language",language) end)
+    home_name_changed=true
+   end
+   local place=settings.weather_place
+   local old_place=self.state.weather_place
+   if (place and place.latitude)~=(old_place and old_place.latitude) or (place and place.longitude)~=(old_place and old_place.longitude) then
+    self.state.weather_place=place
+    self.state.weather_place_name=place and place.name
+    -- Forecast belongs to the old place: drop it and fetch the new one.
+    self.state.data=nil
+    os.remove(CACHE)
+    UIManager:scheduleIn(1,function() if not self.closed then self:refresh(true) end end)
+    home_name_changed=true
+   elseif place and place.name~=self.state.weather_place_name then
+    self.state.weather_place=place;self.state.weather_place_name=place.name;home_name_changed=true
+   end
+   self.state.battery_display_mode=settings.battery_display_mode or "percent_time"
    if settings.interval_seconds~=self.state.photo_interval then
     self.state.photo_interval=settings.interval_seconds
     self.last_photo_change=now
@@ -190,8 +295,14 @@ function Home:init()
    self.state.photo_side=settings.photo_side
    self.state.calendar_side=settings.calendar_side
    self.state.widget_layout=settings.widget_layout
-   self.state.power_button_enabled=settings.power_button_enabled
+   if settings.power_button_enabled~=self.state.power_button_enabled then
+    self.state.power_button_enabled=settings.power_button_enabled
+    self:setWakeStandbyPolicy(self.state.power_button_enabled)
+   end
    self.state.power_button_action=settings.power_button_action
+   self.state.standby_action=settings.standby_action or "last_photo"
+   self.state.standby_orientation=settings.standby_orientation or "auto"
+   self.state.standby_interval=settings.standby_interval_seconds or 120
    if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
    self.state.auto_standby_enabled=settings.auto_standby_enabled
    self.state.auto_standby_delay=settings.auto_standby_delay_seconds
@@ -204,11 +315,11 @@ function Home:init()
    end
    -- Config writes settings to disk; redraw Casa when the web editor changes
    -- widget positions, sizes, or visibility so the new layout appears live.
-   if (layout_changed or widgets_changed) and self.state.page=="home" then
+   if (layout_changed or widgets_changed or battery_display_changed or home_name_changed) and self.state.page=="home" then
     self:repaint()
    end
   end
-  if self.state.server_enabled then
+  if self.state.server_enabled and self.state.server_mode~="always" then
    local last_access=math.max(self.photo_server and self.photo_server.last_activity or 0,self.kitchen_server and self.kitchen_server.last_activity or 0)
    if last_access>0 and now-last_access>=300 then
     self:stopServices()
@@ -236,7 +347,7 @@ function Home:init()
   local was_night=self.state.night_active
   self.state.night_active=self.state.night_mode=="automatic" and scheduled or self.state.night_enabled==true
   if was_night~=self.state.night_active then self:repaint() end
-  if not self.state.screensaver_enabled and self.state.photo_screensaver and self.state.page=="photos" then
+  if not self.state.screensaver_enabled and self.state.photo_screensaver and not self.state.standby_carousel and self.state.page=="photos" then
    self.state.page="home"
    self.state.photo_screensaver=false
    self.last_input=now
@@ -249,7 +360,7 @@ function Home:init()
    self.last_photo_change=now
    self:repaint()
   end
-  if (self.state.page=="home" or self.state.page=="photos") and #self.photos>0 and not self.state.transition and now-(self.last_photo_change or now)>=self.state.photo_interval then
+  if (self.state.page=="home" or self.state.page=="photos") and not self.state.photo_static and #self.photos>0 and not self.state.transition and now-(self.last_photo_change or now)>=self.state.photo_interval then
    self:nextPhoto(1)
   end
   local rt=Model.romeTime(now)
@@ -259,16 +370,31 @@ function Home:init()
    self.state.clock_text=string.format("%02d:%02d",rt.hour,rt.min)
    self:repaint(Geom:new{x=430,y=0,w=370,h=55})
   end
+  -- `./kindle riavvia-casa` on the Mac drops this flag over SSH.
+  if lfs.attributes("/tmp/casa-restart","mode") then
+   os.remove("/tmp/casa-restart")
+   UIManager:restartKOReader()
+   return
+  end
+  if now-(self.last_battery_status_check or 0)>=20 then
+   self.last_battery_status_check=now
+   local power=Device:getPowerDevice()
+   local charging_ok,charging=pcall(function() return power:isCharging() end)
+   if charging_ok and (charging==true)~=self.state.battery_charging then
+    self.state.battery_charging=charging==true
+    self:repaint(Geom:new{x=650,y=0,w=155,h=70})
+   end
+  end
   if now-(self.last_battery_check or 0)>=300 then
    self.last_battery_check=now
-   local power_ok,pct=pcall(function() return Device:getPowerDevice():getCapacityHW() end)
+   local power=Device:getPowerDevice()
+   local power_ok,pct=pcall(function() return power:getCapacityHW() end)
    if power_ok and type(pct)=="number" then
-    self.state.battery_pct=math.max(0,math.min(100,math.floor(pct+0.5)))
-    self:repaint(Geom:new{x=730,y=0,w=70,h=55})
+    self:observeBattery(pct,now,self.state.battery_charging==true)
    end
   end
   -- Refresh live weather every minute while connected; failures retry after a minute.
-  if now-(self.last_weather_check or 0)>=900 then
+  if now-(self.last_weather_check or 0)>=60 then
    self.last_weather_check=now
    if require("ui/network/manager"):isConnected() then self:refresh(false) end
   end
@@ -314,6 +440,11 @@ function Home:init()
  end
  if self.state.clock_seconds_enabled then UIManager:scheduleIn(1,self.clock_tick) end
  self.last_weather_check=os.time()
+ if self.state.server_mode=="always" then
+  UIManager:scheduleIn(0.8,function()
+   if not self.closed and self.state.server_mode=="always" then self:startServices() end
+  end)
+ end
 end
 
 function Home:loadGameList()
@@ -324,14 +455,79 @@ function Home:loadGameList()
 end
 function Home:installStandbyPhotoHook()
  local Screensaver=require("ui/screensaver")
+ local RenderImage=require("ui/renderimage")
  local original=Screensaver.setup
+ local original_mode_expects_portrait=Screensaver.modeExpectsPortrait
  local home=self
  self.screensaver_module=Screensaver
  self.screensaver_setup_original=original
+ self.screensaver_mode_portrait_original=original_mode_expects_portrait
+ Screensaver.modeExpectsPortrait=function(widget,...)
+  if not home.closed and home.state.standby_action=="last_photo" and home.state.screen_orientation=="landscape" then return false end
+  return original_mode_expects_portrait(widget,...)
+ end
+ self.ui_suspend_original=UIManager.suspend
+ UIManager.suspend=function(manager,...)
+  if not home.closed and home.state.standby_action=="slideshow" then
+   if home.state.standby_carousel then home:stopStandbyCarousel() else home:startStandbyCarousel() end
+   return true
+  end
+  return home.ui_suspend_original(manager,...)
+ end
+ local function makeStandbyCover(photo)
+  if not photo or not home.photo_server then return photo end
+  local name=photo:match("([^/]+)$") or photo
+  local display=home.photo_server:getPhotoSetting(name,"fullscreen") or {}
+  local rotation=tonumber(display.rotation) or 0
+  local orientation=home.state.standby_orientation or "auto"
+  local source=RenderImage:renderImageFile(photo,false)
+  if not source then return photo end
+  local source_w,source_h=source:getWidth(),source:getHeight()
+  if rotation%180~=0 then source_w,source_h=source_h,source_w end
+  if orientation=="landscape" and source_h>source_w then rotation=(rotation+90)%360
+  elseif orientation=="portrait" and source_w>source_h then rotation=(rotation+90)%360 end
+  local zoom=math.max(1,math.min(3,tonumber(display.zoom) or 1))
+  local center_x=math.max(0,math.min(1,tonumber(display.center_x) or 0.5))
+  local center_y=math.max(0,math.min(1,tonumber(display.center_y) or 0.5))
+  local screen_w,screen_h=Device.screen:getWidth(),Device.screen:getHeight()
+  local key=table.concat({photo,screen_w,screen_h,rotation,zoom,center_x,center_y,tostring(display.mirror==true),orientation},":")
+  if home.standby_cover_key==key and home.standby_cover_path then source:free();return home.standby_cover_path end
+  source_w,source_h=source:getWidth(),source:getHeight()
+  if rotation%180~=0 then source_w,source_h=source_h,source_w end
+  local cover=math.max(screen_w/source_w,screen_h/source_h)
+  local widget=ImageWidget:new{image=source,image_disposable=true,width=screen_w,height=screen_h,
+   scale_factor=cover*zoom,rotation_angle=rotation,alpha=false,
+   center_x_ratio=center_x,center_y_ratio=center_y}
+  local ok,cover_path=pcall(function()
+   widget:getSize()
+   local bitmap=widget._bb
+   if not bitmap then return nil end
+   if display.mirror==true then
+    local copy=bitmap:copy()
+    for row=0,bitmap:getHeight()-1 do
+     for col=0,bitmap:getWidth()-1 do bitmap:setPixel(col,row,copy:getPixel(bitmap:getWidth()-1-col,row)) end
+    end
+    copy:free()
+   end
+   local destination="/tmp/kindhome-standby-cover.png"
+   pcall(bitmap.writePNG,bitmap,destination)
+   local saved=io.open(destination,"rb")
+   if saved then saved:close();return destination end
+   return nil
+  end)
+  if widget.free then widget:free() end
+  if ok and cover_path then
+   home.standby_cover_key=key
+   home.standby_cover_path=cover_path
+   return cover_path
+  end
+  return photo
+ end
  Screensaver.setup=function(widget,...)
   local settings=G_reader_settings
-  local photo=not home.closed and not home.state.power_button_enabled and home.state.photo_file
+  local photo=not home.closed and home.state.standby_action=="last_photo" and home.state.photo_file
   if not photo or not settings then return original(widget,...) end
+  photo=makeStandbyCover(photo)
   local keys={"screensaver_type","screensaver_document_cover","screensaver_show_message"}
   local previous={}
   for _,key in ipairs(keys) do previous[key]={exists=settings:has(key),value=settings:readSetting(key)} end
@@ -347,20 +543,67 @@ function Home:installStandbyPhotoHook()
   return unpack(result,2)
  end
  self.screensaver_setup_wrapper=Screensaver.setup
+ self.screensaver_mode_portrait_wrapper=Screensaver.modeExpectsPortrait
+end
+function Home:startStandbyCarousel()
+ if self.closed or #self.photos==0 then return false end
+ self:setWakeStandbyPolicy(false)
+ self.state.page="photos"
+ self.state.photo_screensaver=false
+ self.state.photo_static=false
+ self.state.standby_carousel=true
+ self.state.photo_interval=math.max(30,tonumber(self.state.standby_interval) or 120)
+ self.last_photo_change=os.time()
+ self.state.photo_index=math.max(1,self.state.photo_index or 1)
+ self:choosePhoto(0)
+ self:repaint()
+ return true
+end
+function Home:stopStandbyCarousel()
+ if not self.state.standby_carousel then return end
+ self.state.standby_carousel=false
+ self.state.photo_static=false
+ self.state.photo_screensaver=false
+ self.state.page="home"
+ self:setWakeStandbyPolicy(self.state.power_button_enabled)
+ self.last_input=os.time()
+ self:repaint()
 end
 function Home:installWakeEventHook()
- local original=UIManager.event_handlers and UIManager.event_handlers.OutOfSS
- if type(original)~="function" then return end
  local home=self
- self.previous_outofss_handler=original
- self.wake_event_wrapper=function(...)
-  local result={original(...)}
-  UIManager:scheduleIn(0.1,function()
-   if not home.closed then home:onResume() end
-  end)
-  return unpack(result)
+ self.previous_wake_handlers={}
+ self.wake_event_wrappers={}
+ -- Kindle 4's lower power slider can wake from the screensaver without a
+ -- suspend/resume cycle. Listen to both events; onResume debounces duplicates.
+ for _,event_name in ipairs({"OutOfSS","WakeupFromSuspend"}) do
+  local original=UIManager.event_handlers and UIManager.event_handlers[event_name]
+  if type(original)=="function" then
+   self.previous_wake_handlers[event_name]=original
+   self.wake_event_wrappers[event_name]=function(...)
+    local result={original(...)}
+    UIManager:scheduleIn(1.5,function()
+     if not home.closed then home:onResume() end
+    end)
+    return unpack(result)
+   end
+   UIManager.event_handlers[event_name]=self.wake_event_wrappers[event_name]
+  end
  end
- UIManager.event_handlers.OutOfSS=self.wake_event_wrapper
+ local into_ss=UIManager.event_handlers and UIManager.event_handlers.IntoSS
+ if type(into_ss)=="function" then
+  self.previous_wake_handlers.IntoSS=into_ss
+  self.wake_event_wrappers.IntoSS=function(input_event,...)
+   if not home.closed and home.state.standby_action=="slideshow" then
+    local input=Device.input
+    local pending=input and input.fake_event_args and input.fake_event_args[input_event]
+    if pending then table.remove(pending) end
+    if home.state.standby_carousel then home:stopStandbyCarousel() else home:startStandbyCarousel() end
+    return true
+   end
+   return into_ss(input_event,...)
+  end
+  UIManager.event_handlers.IntoSS=self.wake_event_wrappers.IntoSS
+ end
 end
 
 function Home:updateNetworkStatus()
@@ -395,6 +638,7 @@ function Home:updateNetworkStatus()
   self.state.internet_online=false
  end
  if old_wifi~=self.state.wifi_enabled or old_connected~=self.state.wifi_connected or old_online~=self.state.internet_online then
+  self:updateBatteryEstimateLabel(false)
   self:repaint()
  end
 end
@@ -420,7 +664,6 @@ function Home:startROM()
   return true
  end
  local command="/bin/sh "..string.format("%q",launcher).." "..string.format("%q",ROM_DIR.."/"..name).." >>"..string.format("%q",GAMES_DIR.."/game.log").." 2>&1 &"
- local ConfirmBox=require("ui/widget/confirmbox")
  UIManager:show(ConfirmBox:new{text="Controlli: frecce = direzione · Back = A · Menu = B · tasti pagina sinistri = Select/Start. Premi Home per uscire e tornare a Casa.",ok_text="Avvia",cancel_text="Annulla",ok_callback=function() os.execute(command) end})
  return true
 end
@@ -624,10 +867,29 @@ function Home:paintTo(bb,x,y)
    local dark=(c.black==true)~=night
    bb:paintRect(x+c.x,y+c.y,c.w,c.h,dark and BB.COLOR_BLACK or BB.COLOR_WHITE)
   elseif c.kind=="photo" then
-   local key=c.file..":"..math.floor(c.w).."x"..math.floor(c.h)..":"..tostring(c.rotation or 0)
+   local key=c.file..":"..math.floor(c.w).."x"..math.floor(c.h)..":"..tostring(c.rotation or 0)..":"..tostring(c.zoom or 1)..":"..tostring(c.mirror)..":"..tostring(c.center_x)..":"..tostring(c.center_y)
    if self.photo_widget_key~=key then
     if self.photo_widget then self.photo_widget:free() end
-    self.photo_widget=ImageWidget:new{file=c.file,width=c.w,height=c.h,scale_factor=0,rotation_angle=c.rotation or 0,alpha=false}
+    local source=RenderImage:renderImageFile(c.file,false)
+    if source then
+     local source_w,source_h=source:getWidth(),source:getHeight()
+     if (c.rotation or 0)%180~=0 then source_w,source_h=source_h,source_w end
+     local cover=math.max(c.w/source_w,c.h/source_h)
+     self.photo_widget=ImageWidget:new{image=source,image_disposable=true,width=c.w,height=c.h,
+      scale_factor=cover*(c.zoom or 1),rotation_angle=c.rotation or 0,alpha=false,
+      center_x_ratio=c.center_x or 0.5,center_y_ratio=c.center_y or 0.5}
+     self.photo_widget:getSize()
+     if c.mirror and self.photo_widget._bb then
+      local photo_bb=self.photo_widget._bb
+      local copy=photo_bb:copy()
+      for row=0,photo_bb:getHeight()-1 do
+       for col=0,photo_bb:getWidth()-1 do photo_bb:setPixel(col,row,copy:getPixel(photo_bb:getWidth()-1-col,row)) end
+      end
+      copy:free()
+     end
+    else
+     self.photo_widget=ImageWidget:new{file=c.file,width=c.w,height=c.h,scale_factor=0,rotation_angle=c.rotation or 0,alpha=false}
+    end
     self.photo_widget_key=key
    end
    self.photo_widget:paintTo(bb,x+c.x,y+c.y)
@@ -655,6 +917,65 @@ function Home:applyOrientation(orientation)
  local Event=require("ui/event")
  UIManager:broadcastEvent(Event:new("SetRotationMode",mode))
 end
+function Home:getBatteryProfile()
+ return table.concat({
+  self.state.server_enabled and "server1" or "server0",
+  self.state.wifi_enabled and "wifi1" or "wifi0",
+  self.state.clock_seconds_enabled and "seconds1" or "seconds0",
+ },"-")
+end
+function Home:updateBatteryEstimateLabel(redraw)
+ local rates=self.battery_usage and self.battery_usage.rates or {}
+ local rate=tonumber(rates[self:getBatteryProfile()] or rates.global)
+ local label="Calibro"
+ if rate and rate>0 then
+  local hours=(tonumber(self.state.battery_pct) or 0)/rate
+  label=hours>=100 and ">99h" or hours<1 and "<1h" or ("~"..math.floor(hours+0.5).."h")
+ end
+ local changed=label~=self.state.battery_estimate_text
+ self.state.battery_estimate_text=label
+ if changed and redraw~=false then self:repaint(Geom:new{x=600,y=0,w=200,h=75}) end
+end
+function Home:saveBatteryUsage()
+ local f=io.open(BATTERY_USAGE..".tmp","wb")
+ if not f then return end
+ f:write(json.encode({rates=self.battery_usage.rates,observation=self.battery_observation}));f:close()
+ os.rename(BATTERY_USAGE..".tmp",BATTERY_USAGE)
+end
+function Home:observeBattery(value,now,charging)
+ local capacity=math.max(0,math.min(100,math.floor(value+0.5)))
+ self.state.battery_pct=capacity
+ local profile=self:getBatteryProfile()
+ if charging then
+  self.battery_observation=nil
+  self:saveBatteryUsage()
+  self:updateBatteryEstimateLabel()
+  self:repaint(Geom:new{x=730,y=0,w=70,h=55})
+  return
+ end
+ local observation=self.battery_observation
+ if not observation or observation.profile~=profile or capacity>observation.capacity then
+  self.battery_observation={profile=profile,capacity=capacity,at=now}
+  self:saveBatteryUsage()
+ else
+  local drained=observation.capacity-capacity
+  local elapsed=now-observation.at
+  if drained>=1 and elapsed>=900 then
+   local measured_rate=drained/(elapsed/3600)
+   if measured_rate>0 and measured_rate<100 then
+    local previous=tonumber(self.battery_usage.rates[profile])
+    self.battery_usage.rates[profile]=previous and previous*0.65+measured_rate*0.35 or measured_rate
+    local global=tonumber(self.battery_usage.rates.global)
+    self.battery_usage.rates.global=global and global*0.65+measured_rate*0.35 or measured_rate
+    self:saveBatteryUsage()
+   end
+   self.battery_observation={profile=profile,capacity=capacity,at=now}
+   self:saveBatteryUsage()
+  end
+ end
+ self:updateBatteryEstimateLabel()
+ self:repaint(Geom:new{x=730,y=0,w=70,h=55})
+end
 function Home:onResume()
  if self.closed then return true end
  local resume_time=os.time()
@@ -662,11 +983,14 @@ function Home:onResume()
  self.last_power_resume_time=resume_time
  self.last_input=os.time()
  self.standby_triggered=false
- if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(true) end
  local settings=self.photo_server and self.photo_server:getSlideshowSettings()
  if settings then
-  self.state.power_button_enabled=settings.power_button_enabled
+  if settings.power_button_enabled~=self.state.power_button_enabled then
+   self.state.power_button_enabled=settings.power_button_enabled
+   self:setWakeStandbyPolicy(self.state.power_button_enabled)
+  end
   self.state.power_button_action=settings.power_button_action
+  self.state.standby_action=settings.standby_action or "last_photo"
   self.state.auto_standby_enabled=settings.auto_standby_enabled
   self.state.auto_standby_delay=settings.auto_standby_delay_seconds
   self.state.auto_standby_start=settings.auto_standby_start
@@ -675,17 +999,25 @@ function Home:onResume()
   if settings.show_clock_seconds~=self.state.clock_seconds_enabled then self:setClockSecondsVisible(settings.show_clock_seconds) end
  end
  local action=self.state.power_button_enabled and self.state.power_button_action or nil
+ if not action then self.state.photo_static=false end
  if action then
   self.state.menu_open=false
   if action=="photos" then
    self:loadPhotos()
    if #self.photos>0 then
     self.state.page="photos";self.state.photo_screensaver=false;self.state.photo_index=1;self:choosePhoto(0);self.last_photo_change=self.last_input
+   self.state.standby_carousel=true;self.state.photo_interval=math.max(30,tonumber(self.state.standby_interval) or 120);self:setWakeStandbyPolicy(false)
+   self.state.photo_static=false
    else self.state.page="home";UIManager:scheduleIn(0.6,function() if not self.closed then UIManager:show(InfoMessage:new{text="Non ci sono foto nella galleria."}) end end) end
-  elseif action=="calendar" then self.state.page="calendar";self.state.calendar_month=0
-  elseif action=="weather" then self.state.page="day"
-  elseif action=="timer" then self.state.page="timer"
-  elseif action=="shopping" then self.state.page="shopping";self.state.shopping_scroll=0 end
+  elseif action=="last_photo" then
+   self:loadPhotos()
+   if #self.photos>0 then self.state.page="photos";self.state.photo_screensaver=false;self.state.photo_static=true;self.state.photo_index=self.state.photo_index or 1;self:choosePhoto(0);self.last_photo_change=self.last_input
+   else self.state.page="home";UIManager:scheduleIn(0.6,function() if not self.closed then UIManager:show(InfoMessage:new{text="Non ci sono foto nella galleria."}) end end) end
+  elseif action=="home" then self.state.page="home";self.state.photo_static=false
+  elseif action=="calendar" then self.state.page="calendar";self.state.photo_static=false;self.state.calendar_month=0
+  elseif action=="weather" then self.state.page="day";self.state.photo_static=false
+  elseif action=="timer" then self.state.page="timer";self.state.photo_static=false
+  elseif action=="shopping" then self.state.page="shopping";self.state.photo_static=false;self.state.shopping_scroll=0 end
  end
  UIManager:scheduleIn(0.5,function()
   if self.closed then return end
@@ -693,6 +1025,12 @@ function Home:onResume()
   self.dimen=Geom:new{x=0,y=0,w=Device.screen:getWidth(),h=Device.screen:getHeight()}
   UIManager:setDirty(nil,"full")
   self:repaint()
+ end)
+ return true
+end
+function Home:onOutOfScreenSaver()
+ UIManager:scheduleIn(0.1,function()
+  if not self.closed then self:onResume() end
  end)
  return true
 end
@@ -708,10 +1046,10 @@ function Home:onSetRotationMode(mode)
  return true
 end
 function Home:touchActivity()
+ self.state.photo_static=false
  self.last_input=os.time()
  self.standby_triggered=false
  self:scheduleCasaStandby()
- if self.state.page=="photos" then self.state.page="home";self.state.photo_screensaver=false;self.last_photo_change=self.last_input end
 end
 function Home:scheduleCasaStandby()
  if self.closed or not self.standby_task then return end
@@ -779,7 +1117,7 @@ function Home:startServices()
  self.services_started=true
  -- The Kindle power daemon has a separate inactivity screen saver. KOReader's
  -- standby lock alone does not suppress that Kindle 4 screen transition.
- self:setKindleScreenSaverPrevented(true)
+ self:setKindleScreenSaverPrevented(not self.state.power_button_enabled)
  if self.photo_server and self.photo_server:start() then
   self.state.upload_url=self.photo_server:getURL()
   self.last_ip_lookup=0
@@ -790,8 +1128,9 @@ function Home:startServices()
  end
  self.state.server_enabled=(self.photo_server and self.photo_server.listener~=nil) or (self.kitchen_server and self.kitchen_server.listener~=nil) or false
  self.last_server_activity=os.time()
- if self.state.server_enabled then self:setKindleScreenSaverPrevented(true) end
+ if self.state.server_enabled then self:setKindleScreenSaverPrevented(not self.state.power_button_enabled) end
  if self.state.server_enabled then UIManager:scheduleIn(0.1,self.upload_tick) end
+ self:updateBatteryEstimateLabel(false)
  self:repaint()
 end
 function Home:stopServices()
@@ -802,15 +1141,23 @@ function Home:stopServices()
  self.state.upload_url=nil
  self.state.kitchen_url=nil
  self.services_started=false
+ self:updateBatteryEstimateLabel(false)
  self:repaint()
 end
-function Home:toggleServices()
- if self.state.server_enabled then
+function Home:cycleServerMode()
+ local current=self.state.server_mode or "off"
+ local next_mode=current=="off" and "timeout" or current=="timeout" and (self.state.server_enabled and "always" or "timeout") or "off"
+ local settings=self.photo_server:getSlideshowSettings()
+ settings.server_mode=next_mode
+ self.photo_server:saveSlideshowSettings(settings)
+ self.state.server_mode=next_mode
+ if next_mode=="off" then
   self:stopServices()
-  UIManager:show(InfoMessage:new{text="Server spento."})
+  UIManager:show(InfoMessage:new{text="Server Config e foto spento."})
  else
-  self:startServices()
-  UIManager:show(InfoMessage:new{text=self.state.server_enabled and "Server attivo. Il link è in basso a destra; si spegnerà dopo 5 minuti senza richieste." or "Non riesco ad avviare il server. Controlla che il Wi-Fi sia attivo."})
+  if not self.state.server_enabled then self:startServices() end
+  local message=next_mode=="always" and "Server sempre attivo; si riaprirà anche quando Casa riparte." or "Server attivo; si spegnerà dopo 5 minuti senza richieste."
+  UIManager:show(InfoMessage:new{text=self.state.server_enabled and message or "Non riesco ad avviare il server. Controlla che il Wi-Fi sia attivo."})
  end
 end
 function Home:setClockSecondsVisible(enabled)
@@ -824,6 +1171,7 @@ function Home:setClockSecondsVisible(enabled)
   self.state.clock_text=string.format("%02d:%02d",current.hour,current.min)
   self.last_clock_minute=current.year*100000000+current.month*1000000+current.day*10000+current.hour*100+current.min
  end
+ self:updateBatteryEstimateLabel(false)
  self:repaint(Geom:new{x=430,y=0,w=300,h=55})
 end
 function Home:setKindleScreenSaverPrevented(prevent)
@@ -834,17 +1182,37 @@ function Home:setKindleScreenSaverPrevented(prevent)
   self.kindle_screensaver_prevented=prevent
  end
 end
+function Home:setWakeStandbyPolicy(enabled)
+ if enabled then
+  if self.standby_prevented then
+   pcall(UIManager.allowStandby,UIManager)
+   self.standby_prevented=false
+  end
+  PluginShare.keepalive=self.previous_keepalive
+  PluginShare.pause_auto_suspend=self.previous_pause_auto_suspend
+  self:setKindleScreenSaverPrevented(false)
+ else
+  if not self.standby_prevented then
+   self.standby_prevented=pcall(UIManager.preventStandby,UIManager)
+  end
+  PluginShare.keepalive=true
+  PluginShare.pause_auto_suspend=true
+  self:setKindleScreenSaverPrevented(true)
+ end
+end
 function Home:startPhotos()
  self:loadPhotos()
  self.last_input=os.time()
  self.state.page="photos"
  self.state.photo_screensaver=false
+ self.state.photo_static=false
  self.state.photo_index=1
  self:choosePhoto(0)
  self.last_photo_change=os.time()
  self:repaint()
 end
 function Home:nextPhoto(delta)
+ self.state.photo_static=false
  self:loadPhotos()
  if #self.photos==0 then self.state.photo_index=nil;self.state.photo_file=nil
  else
@@ -867,7 +1235,7 @@ function Home:choosePhoto(delta)
 end
 function Home:onMove(delta)
  self:touchActivity()
- if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%15)+1
+ if self.state.page=="home" and self.state.menu_open then self.state.selected=((self.state.selected-1+delta)%18)+1
  elseif self.state.page=="games" then
   self.state.game_selected=math.max(1,math.min(#self.state.game_results,(self.state.game_selected or 1)+delta))
  elseif self.state.page=="game_search" then
@@ -933,7 +1301,7 @@ function Home:openFolder(folder)
  end
 end
 function Home:onChoose()
- if self.state.page=="photos" then self:touchActivity(); self.state.page="home"; self.state.photo_screensaver=false; self:repaint(); return true end
+ if self.state.page=="photos" then self:stopStandbyCarousel();if not self.state.standby_carousel then self.state.page="home";self.state.photo_screensaver=false;self:repaint() end;return true end
  self:touchActivity()
  if self.state.page=="game_search" then
   local chosen=self.state.game_letters[self.state.game_letter_selected or 1] or "Tutti"
@@ -961,28 +1329,98 @@ function Home:onChoose()
  elseif choice==10 then
   UIManager:show(InfoMessage:new{text=self.state.upload_url and ("Sul telefono apri "..self.state.upload_url.." e scegli una foto. Kindle e telefono devono usare la stessa rete Wi-Fi.") or "Connetti il Kindle al Wi-Fi e riapri Casa per ricevere un indirizzo locale."})
  elseif choice==11 then
-  local ConfirmBox=require("ui/widget/confirmbox")
-  UIManager:show(ConfirmBox:new{text="KOReader si chiuderà e si riaprirà per caricare gli aggiornamenti. Il Kindle non verrà riavviato.",ok_text="Riavvia KOReader",ok_callback=function()
+  UIManager:show(ConfirmBox:new{text="Casa si chiuderà e si riaprirà per caricare gli aggiornamenti.",ok_text="Riavvia Casa",ok_callback=function()
    UIManager:close(self)
    UIManager:restartKOReader()
   end})
  elseif choice==12 then
-  local ConfirmBox=require("ui/widget/confirmbox")
   UIManager:show(ConfirmBox:new{text="Vuoi riavviare il Kindle adesso?",ok_text="Riavvia",ok_callback=function()
    UIManager:close(self)
    os.execute("sleep 1 && reboot &")
   end})
  elseif choice==13 then self:clearMemory()
  elseif choice==14 then UIManager:show(InfoMessage:new{text=self.state.kitchen_url and ("Apri dal telefono "..self.state.kitchen_url.." per usare il timer e la lista della spesa. Kindle e telefono devono essere sulla stessa Wi-Fi.") or "Attiva il server dal menu Casa per aprire il pannello Cucina sulla rete Wi-Fi."})
- elseif choice==15 then self:toggleServices()
+ elseif choice==15 then self:cycleServerMode()
+ elseif choice==16 then self:fixWifi()
+ elseif choice==17 then self:usbMode()
+ elseif choice==18 then self:cycleLanguage()
  end
  return true
+end
+-- KOReader on Kindle 4 (FW 4.x) has no liblipclua, so its Wi-Fi scan UI cannot work:
+-- re-enable the radio through the system lipc tools and report what wifid says.
+function Home:fixWifi()
+ local log=ROOT.."/casa/wifi-diag.log"
+ os.remove(log)
+ UIManager:show(InfoMessage:new{text="Riattivo il Wi‑Fi del Kindle… attendi fino a 40 secondi.",timeout=4})
+ os.execute("(/bin/sh "..ROOT.."/koreader/plugins/casa.koplugin/wifi-fix.sh >"..log.." 2>&1) &")
+ local tries=0
+ local function check()
+  if self.closed then return end
+  tries=tries+1
+  local f=io.open(log,"r");local raw=f and f:read("*a") or "";if f then f:close() end
+  if not raw:find("\nFINE") and tries<25 then UIManager:scheduleIn(2,check);return end
+  local state=raw:match("STATO=(%S*)") or ""
+  if state=="CONNECTED" then
+   UIManager:show(InfoMessage:new{text="Wi‑Fi collegato.",timeout=4})
+   self:refresh(true)
+  else
+   UIManager:show(InfoMessage:new{text="Wi‑Fi non collegato (stato: "..(state~="" and state or "sconosciuto").."). Le reti si aggiungono da Modalità USB → Impostazioni Kindle → Reti Wi‑Fi. Diagnosi salvata in casa/wifi-diag.log."})
+  end
+ end
+ UIManager:scheduleIn(4,check)
+end
+-- Menu → Lingua: auto (Kindle language) → it → en → … → auto. Saved like the web Config.
+function Home:cycleLanguage()
+ local order={"auto"}
+ for _,l in ipairs(I18N.languages) do order[#order+1]=l.code end
+ local next_setting="auto"
+ for i,code in ipairs(order) do if code==(self.state.language_setting or "auto") then next_setting=order[i%#order+1] end end
+ self.photo_server:saveSlideshowSettings({language=next_setting})
+ self.state.language_setting=next_setting
+ self.state.language=I18N.set(next_setting)
+ pcall(function() G_reader_settings:saveSetting("language",self.state.language) end)
+ self.state.menu_open=true;self.state.selected=18
+ self:repaint()
+end
+-- USB drive mode needs the whole user partition, so Casa has to quit; koreader.sh then resumes
+-- the Kindle framework. A watcher copied to /var/tmp (it must not keep /mnt/us busy) reopens
+-- Casa once the Mac has had the drive and the cable is unplugged.
+function Home:usbMode()
+ UIManager:show(ConfirmBox:new{text="Casa si chiude per qualche minuto. Collega il cavo: il Mac vedrà il Kindle come unità USB. Quando hai finito espelli dal Mac e scollega: Casa si riapre da sola.",ok_text="Modalità USB",ok_callback=function()
+  self:startUsbMode()
+ end})
+end
+function Home:startUsbMode()
+ os.execute("/bin/sh "..ROOT.."/koreader/plugins/casa.koplugin/sftp.sh stop >/dev/null 2>&1")
+ os.execute("cp "..ROOT.."/koreader/plugins/casa.koplugin/usb-return.sh /var/tmp/casa-usb-return.sh && cd / && (/bin/sh /var/tmp/casa-usb-return.sh </dev/null >/dev/null 2>&1 &)")
+ UIManager:close(self)
+ UIManager:quit(0)
+end
+-- Cable plugged in: after 5 s, switch to USB drive mode only if a computer enumerated the Kindle
+-- (a wall charger must leave Casa running).
+function Home:onCharging()
+ local probe=ROOT.."/koreader/plugins/casa.koplugin/usb-probe.sh"
+ os.execute("/bin/sh "..probe.." start")
+ if self.usb_auto_task then UIManager:unschedule(self.usb_auto_task) end
+ self.usb_auto_task=function()
+  if self.closed then return end
+  local p=io.popen("/bin/sh "..probe.." check 2>/dev/null")
+  local out=p and p:read("*a") or "";if p then p:close() end
+  if not out:find("HOST=1") then return end
+  UIManager:show(InfoMessage:new{text="Computer collegato: passo alla modalità USB…",timeout=2})
+  UIManager:scheduleIn(2,function() if not self.closed then self:startUsbMode() end end)
+ end
+ UIManager:scheduleIn(5,self.usb_auto_task)
+end
+function Home:onNotCharging()
+ if self.usb_auto_task then UIManager:unschedule(self.usb_auto_task) end
 end
 function Home:onBack()
  if self.state.page=="game" then self:leaveGame();return true end
  if self.state.page=="game_search" then self.state.page="games";self.state.game_search_focus=true;self:repaint();return true end
  if self.state.page=="games" then self.state.page="home";self.state.menu_open=false;self:repaint();return true end
- if self.state.page=="photos" then self.state.page="home"; self.state.photo_screensaver=false; self.last_input=os.time(); self:repaint(); return true end
+ if self.state.page=="photos" then self:stopStandbyCarousel();if not self.state.standby_carousel then self.state.page="home";self.state.photo_screensaver=false;self.last_input=os.time();self:repaint() end;return true end
  self:touchActivity()
  if self.state.page~="home" then self.state.page="home"; self.state.selected=1; self.state.menu_open=false; self:repaint()
  else self.state.menu_open=false; self.state.selected=1; self:repaint() end
@@ -994,6 +1432,7 @@ function Home:onRefresh()
  self:touchActivity();self:refresh(true);return true
 end
 function Home:onHome()
+ self:stopStandbyCarousel()
  self.home_repeat_count=0
  self.home_memory_cleared=false
  self:touchActivity()
@@ -1046,13 +1485,21 @@ function Home:clearMemory()
 end
 function Home:onCloseWidget()
  self.closed=true
+ if self.ui_suspend_original and UIManager.suspend~=self.ui_suspend_original then UIManager.suspend=self.ui_suspend_original end
  if self.screensaver_module and self.screensaver_module.setup==self.screensaver_setup_wrapper then
   self.screensaver_module.setup=self.screensaver_setup_original
  end
- if UIManager.event_handlers and UIManager.event_handlers.OutOfSS==self.wake_event_wrapper then
-  UIManager.event_handlers.OutOfSS=self.previous_outofss_handler
+ if self.screensaver_module and self.screensaver_module.modeExpectsPortrait==self.screensaver_mode_portrait_wrapper then
+  self.screensaver_module.modeExpectsPortrait=self.screensaver_mode_portrait_original
  end
- if self.kindle_screensaver_prevented and not self.previous_keepalive then self:setKindleScreenSaverPrevented(false) end
+ if UIManager.event_handlers then
+  for event_name,wrapper in pairs(self.wake_event_wrappers or {}) do
+   if UIManager.event_handlers[event_name]==wrapper then
+    UIManager.event_handlers[event_name]=self.previous_wake_handlers[event_name]
+   end
+  end
+ end
+ if self.kindle_screensaver_prevented then self:setKindleScreenSaverPrevented(false) end
  PluginShare.keepalive=self.previous_keepalive
  PluginShare.pause_auto_suspend=self.previous_pause_auto_suspend
  if self.standby_prevented then
@@ -1060,6 +1507,7 @@ function Home:onCloseWidget()
   self.standby_prevented=false
  end
  UIManager:unschedule(self.tick)
+ if self.usb_auto_task then UIManager:unschedule(self.usb_auto_task) end
  UIManager:unschedule(self.upload_tick)
  UIManager:unschedule(self.clock_tick)
  UIManager:unschedule(self.standby_task)
@@ -1074,7 +1522,14 @@ function Home:refresh(interactive)
  local network=require("ui/network/manager")
  local function fetch()
   if self.closed then return end
+  local url=Model.urlFor(self.state.weather_place)
+  if not url then
+   if interactive then UIManager:show(InfoMessage:new{text="Imposta la località meteo dal pannello Config.",timeout=4}) end
+   return
+  end
   self.busy=true
+  self.state.weather_refreshing=interactive==true
+  if interactive then self:repaint() end
   require("ui/trapper"):wrap(function()
    local complete,raw=require("ui/trapper"):dismissableRunInSubprocess(function()
     local http=require("ssl.https")
@@ -1082,17 +1537,33 @@ function Home:refresh(interactive)
     util:set_timeout(8,15)
     local body={}
     local ok,code=pcall(function()
-     local _,status=http.request{url=Model.url,sink=util.table_sink(body),
+     local _,status=http.request{url=url,sink=util.table_sink(body),
       protocol="any",verify="peer",options="all",cafile="./data/ca-bundle.crt"}
      return status
     end)
     util:reset_timeout()
     if ok and tonumber(code)==200 then return table.concat(body) end
-   end,"Aggiorno il meteo…\nIndietro per annullare",true)
+   end,nil,true)
    self.busy=false
    if self.closed then return end
+   self.state.weather_refreshing=false
    local data=complete and decode(raw)
+   local changed=false
    if data then
+    local previous=self.state.data
+    local function sameWeather(a,b)
+     if not a or not b or type(a.current)~="table" or type(b.current)~="table" or type(a.daily)~="table" or type(b.daily)~="table" then return false end
+     local current_keys={"temperature_2m","weather_code","precipitation","rain","showers","relative_humidity_2m","apparent_temperature","wind_speed_10m","wind_direction_10m","cloud_cover","pressure_msl"}
+     for _,key in ipairs(current_keys) do if a.current[key]~=b.current[key] then return false end end
+     local daily_keys={"time","weather_code","temperature_2m_max","temperature_2m_min","precipitation_probability_max"}
+     for _,key in ipairs(daily_keys) do
+      local av,bv=a.daily[key],b.daily[key]
+      if type(av)~="table" or type(bv)~="table" then return false end
+      for i=1,7 do if av[i]~=bv[i] then return false end end
+     end
+     return true
+    end
+    changed=not sameWeather(previous,data)
     data.fetched_at=os.time()
     local f=io.open(CACHE..".tmp","wb")
     if f then f:write(json.encode(data));f:close();os.rename(CACHE..".tmp",CACHE) end
@@ -1100,7 +1571,7 @@ function Home:refresh(interactive)
    elseif interactive then
     UIManager:show(InfoMessage:new{text="Meteo non aggiornato. Controlla il Wi-Fi e la data del Kindle, poi riprova. I dati salvati restano disponibili."})
    end
-   self:repaint()
+   if changed or interactive then self:repaint() end
   end)
  end
  if interactive then network:runWhenConnected(fetch)

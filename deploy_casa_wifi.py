@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import sys
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 root = Path(__file__).resolve().parent
 plugin = root / "casa.koplugin"
@@ -12,10 +13,10 @@ if not key_path.is_file():
     sys.exit("Manca la chiave Wi-Fi. Collega il Kindle via USB una volta per configurare gli aggiornamenti.")
 base_url = (sys.argv[1].strip() if len(sys.argv) > 1 else (url_file.read_text().strip() if url_file.exists() else ""))
 if not base_url.startswith("http://"):
-    sys.exit("Indica l'indirizzo locale mostrato nella schermata Casa")
+    sys.exit("Indica l'indirizzo Casa mostrato sul Kindle, per esempio http://<indirizzo-del-kindle>:8765")
 key = key_path.read_text().strip()
 files = [p for p in plugin.rglob("*") if p.is_file() and (p.suffix == ".lua" or (p.parent.name == "icons" and p.suffix == ".svg"))]
-files.sort(key=lambda p: (p.name == "photo_server.lua", p.as_posix()))
+files.sort(key=lambda p: (p.name != "photo_server.lua", p.as_posix()))
 for path in files:
     relative = path.relative_to(plugin).as_posix()
     request = Request(base_url.rstrip("/") + "/update", data=path.read_bytes(), method="POST", headers={
@@ -26,9 +27,27 @@ for path in files:
     try:
         with urlopen(request, timeout=8) as response:
             result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+        sys.exit(f"Aggiornamento interrotto su {relative}: HTTP {exc.code} {detail}")
     except Exception as exc:
         sys.exit(f"Aggiornamento interrotto su {relative}: {exc}")
     if not result.get("ok"):
         sys.exit(f"Aggiornamento rifiutato su {relative}.")
     print("Aggiornato:", relative)
+core_input = root / "staging/reader/koreader/frontend/device/input.lua"
+if core_input.is_file():
+    request = Request(base_url.rstrip("/") + "/update", data=core_input.read_bytes(), method="POST", headers={
+        "Content-Type": "application/octet-stream",
+        "X-Casa-Update-Key": key,
+        "X-Casa-Update-File": "core-input.lua",
+    })
+    try:
+        with urlopen(request, timeout=8) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        sys.exit(f"Aggiornamento interrotto su input.lua: {exc}")
+    if not result.get("ok"):
+        sys.exit("Aggiornamento rifiutato su input.lua.")
+    print("Aggiornato: input.lua (ripetizione tasto HOME)")
 print("File Casa aggiornati via Wi-Fi. Per caricare il nuovo codice, riavvia KOReader dal menu Casa; non serve riavviare tutto il Kindle.")

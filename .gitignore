@@ -13,3 +13,6 @@ Casa/Foto/
 Casa/Games/
 Casa/intervallo-foto.txt
 *.log
+# Chiavi SSH del Mac e chiave pubblica installata nel plugin: personali.
+chiavi/
+casa.koplugin/authorized_keys

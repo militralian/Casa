@@ -1,5 +1,11 @@
 local M = {}
-M.url = "https://api.open-meteo.com/v1/forecast?latitude=0.0&longitude=0.0&current=temperature_2m,weather_code,precipitation,rain,showers,relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_direction_10m,cloud_cover,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FRome&forecast_days=7"
+-- The place comes from the Config page (weather_place in the settings); no place, no request.
+M.url_params = "&current=temperature_2m,weather_code,precipitation,rain,showers,relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_direction_10m,cloud_cover,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7"
+function M.urlFor(place)
+ local lat, lon = place and tonumber(place.latitude), place and tonumber(place.longitude)
+ if not lat or not lon or lat < -90 or lat > 90 or lon < -180 or lon > 180 then return nil end
+ return string.format("https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f", lat, lon) .. M.url_params
+end
 M.phrases = {
  "Una cosa alla volta, fatta con cura.", "Oggi lascia spazio a qualcosa di semplice.",
  "Le cose buone hanno bisogno del loro tempo.", "Comincia da quello che hai, qui e ora.",

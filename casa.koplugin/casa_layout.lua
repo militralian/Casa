@@ -1,11 +1,12 @@
 local M = require("casa_model")
+local I18N = require("casa_i18n")
 local L = {}
 
 function L.build(state, width, height)
  local out={}
  local sx,sy=width/800,height/600
  local function text(x,y,w,size,value,bold,white,serif,max_height,alignment)
-  out[#out+1]={kind="text",x=x*sx,y=y*sy,w=w*sx,size=size*sx,text=value or "",bold=bold,white=white,serif=serif,max_height=max_height and max_height*sy,alignment=alignment}
+  out[#out+1]={kind="text",x=x*sx,y=y*sy,w=w*sx,size=size*sx,text=I18N.tr(value or ""),bold=bold,white=white,serif=serif,max_height=max_height and max_height*sy,alignment=alignment}
  end
  local function rect(x,y,w,h,black)
   out[#out+1]={kind="rect",x=x*sx,y=y*sy,w=w*sx,h=h*sy,black=black}
@@ -18,18 +19,27 @@ function L.build(state, width, height)
  end
  local function rule(y,x,w) rect(x or 30,y,w or 740,1,true) end
  local function icon(x,y,size,code)
-  if state.night_active and state.page~="photos" then rect(x-2,y-2,size+4,size+4,true) end
-  local name=type(code)=="string" and code:match("^wifi[1-4]$") and code or code=="wifi" and "wifi" or M.icon(code)
+  if state.night_active and state.page~="photos" then rect(x-2,y-2,size+4,size+4,false) end
+  local name=code=="charging" and "charging" or type(code)=="string" and code:match("^wifi[1-4]$") and code or code=="wifi" and "wifi" or M.icon(code)
   out[#out+1]={kind="icon",x=x*sx,y=y*sy,w=size*sx,h=size*sy,name=name,night=state.night_active and state.page~="photos"}
  end
  local function photo(file,x,y,w,h)
-  if file then out[#out+1]={kind="photo",file=file,x=x*sx,y=y*sy,w=w*sx,h=h*sy} end
+  if file then
+   local profile=state.page=="photos" and "fullscreen" or (w/h<1.15 and "widget_square" or "widget_wide")
+   local settings=state.photo_display_settings or {}
+   local photo_name=file:match("([^/]+)$") or file
+   local per_photo=type(settings[photo_name])=="table" and settings[photo_name] or {}
+   local display=type(per_photo[profile])=="table" and per_photo[profile] or {}
+   out[#out+1]={kind="photo",file=file,x=x*sx,y=y*sy,w=w*sx,h=h*sy,
+    zoom=math.max(1,math.min(3,tonumber(display.zoom) or 1)),rotation=tonumber(display.rotation) or 0,
+    mirror=display.mirror==true,center_x=tonumber(display.center_x) or 0.5,center_y=tonumber(display.center_y) or 0.5}
+  end
  end
  local now=state.now or os.time()
  local date=M.date(now)
  local page=state.page or "home"
  local data=state.data
- local title=page=="home" and "KindHome" or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="timer" and "Timer cucina" or page=="shopping" and "Lista della spesa" or page=="photos" and "Foto" or "La tua agenda"
+ local title=page=="home" and (state.home_name or "Casa") or page=="games" and "Mini giochi" or page=="game_search" and "Cerca un gioco" or page=="game" and "Partita" or page=="week" and "Meteo della settimana" or page=="day" and "Meteo di oggi" or page=="calendar" and "Calendario" or page=="timer" and "Timer cucina" or page=="shopping" and "Lista della spesa" or page=="photos" and "Foto" or "La tua agenda"
 
  if page~="photos" then
   text(28,9,360,28,title,true)
@@ -39,16 +49,26 @@ function L.build(state, width, height)
   -- Wi-Fi strength is shown by the number of visible waves beside the battery.
   if state.wifi_enabled then
    local strength=math.max(1,math.min(4,tonumber(state.wifi_strength) or 1))
-   icon(700,11,31,"wifi"..strength)
+   icon(670,11,29,"wifi"..strength)
   else
-   text(620,20,108,16,"Disattivato",false)
+   text(620,20,88,16,"Disattivato",false)
   end
+  if state.battery_charging then icon(710,17,17,"charging") end
   -- Battery level is a compact, centered number inside a clear battery outline.
   battery_rect(735,14,48,26,true); battery_rect(737,16,44,22,false)
   battery_rect(783,21,5,12,true)
   local charge=math.max(0,math.min(100,tonumber(state.battery_pct) or 0))
   battery_rect(739,33,math.floor(40*charge/100),3,true)
-  text(738,17,42,15,state.battery_pct and (tostring(state.battery_pct).."%") or "—",true,false,false,16,"center")
+  local battery_mode=state.battery_display_mode or "percent_time"
+  local estimate=(state.battery_estimate_text or ""):gsub("^[~%-]+%s*","")
+  local compact_estimate=estimate:gsub("%s*h$","h")
+  local battery_inside=battery_mode=="remaining" and (estimate~="" and estimate~="Calibro" and compact_estimate or "…") or (state.battery_pct and (tostring(state.battery_pct).."%") or "—")
+  text(738,17,42,15,battery_inside,true,false,false,16,"center")
+  if battery_mode=="percent_time" then
+   estimate=estimate:gsub("h$"," h")
+   text(711,46,78,14,estimate,false,false,false,16,"center")
+  end
+  if state.weather_refreshing then text(565,75,215,13,"Aggiorno il meteo…",false,false,false,16,"right") end
   rule(94,24,752)
  end
 
@@ -85,7 +105,7 @@ function L.build(state, width, height)
   end
   if state.weather_enabled~=false then
    local x,y,w,h=box("weather");local code=fresh and M.currentCode(data.current) or nil
-   text(x+6,y+5,w-12,22,"Meteo locale",true)
+   text(x+6,y+5,w-12,22,state.weather_place_name or "Meteo",true)
    local temp_size=h<285 and 42 or 50
    text(x+6,y+30,math.min(104,w*.34),temp_size,fresh and M.number(data.current.temperature_2m).."°" or "—°",true,false,false,temp_size+10)
    local icon_size=math.min(46,h<190 and 34 or h/4,w*.15)
@@ -145,12 +165,14 @@ function L.build(state, width, height)
   end
   if state.menu_open then
    rect(28,105,322,446,true); rect(30,107,318,442,false)
-   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia KOReader","Riavvia Kindle","Libera memoria","Timer e lista",state.server_enabled and "Server · acceso" or "Server · spento"}
+   local language_label="Lingua: "..(state.language_setting=="auto" and ("Automatica · "..(I18N.name(state.language) or "")) or (I18N.name(state.language_setting) or ""))
+   local server_label=state.server_mode=="always" and "Server · sempre attivo" or state.server_mode=="timeout" and (state.server_enabled and "Server · acceso · 5 min" or "Server · modalità 5 min") or "Server · spento"
+   local labels={"Meteo settimana",state.recipe_count and ("Ricette · "..state.recipe_count) or "Ricette","Appunti","Agenda","Calendario mensile","Mini giochi","Cornice digitale",state.night_active and "Modalità notte: attiva" or "Modalità notte: spenta","Aggiorna meteo","Config Casa","Riavvia Casa","Riavvia Kindle","Libera memoria","Timer e lista",server_label,"Riattiva Wi‑Fi","Modalità USB",language_label}
    for i,label in ipairs(labels) do
-    local y=111+(i-1)*29
+    local y=111+(i-1)*24
     local selected=i==state.selected
-    if selected then rect(39,y-1,300,29,true) end
-    text(49,y,278,20,label,selected,selected,false,26)
+    if selected then rect(39,y-1,300,24,true) end
+    text(49,y,278,18,label,selected,selected,false,24)
    end
   end
   local events=M.agenda(state.agenda_text,now)
@@ -288,7 +310,7 @@ function L.build(state, width, height)
   local pages=math.max(1,math.ceil(#items/12))
   text(28,582,740,14,"Pagina "..tostring((state.shopping_scroll or 0)+1).."/"..tostring(pages).." · Su/giù: scorri · Centro/Home: Casa")
  elseif page=="day" then
-  text(32,106,720,23,"Meteo locale · situazione attuale",true)
+  text(32,106,720,23,(state.weather_place_name or "Meteo").." · situazione attuale",true)
   local fresh=data and data.fetched_at and now-data.fetched_at<180 and now>=data.fetched_at
   if fresh then
    local c=M.currentCode(data.current)
@@ -308,7 +330,7 @@ function L.build(state, width, height)
   else text(40,210,700,25,"Dati meteo da aggiornare. Controlla il Wi-Fi e premi Menu nella schermata Casa.") end
   text(28,582,740,14,"Su/giù: previsioni settimanali · Centro/Home: Casa")
  elseif page=="week" then
-  text(32,105,720,22,"Meteo locale",true)
+  text(32,105,720,22,state.weather_place_name or "Meteo",true)
   if data then
    for i=1,7 do
     local y=143+(i-1)*55
