@@ -376,6 +376,11 @@ function Home:init()
    UIManager:restartKOReader()
    return
   end
+  -- `./kindle server` on the Mac turns the Config server on (same as Menu → Server, 5-minute mode).
+  if lfs.attributes("/tmp/casa-server-on","mode") then
+   os.remove("/tmp/casa-server-on")
+   if not self.state.server_enabled then self:startServices() end
+  end
   if now-(self.last_battery_status_check or 0)>=20 then
    self.last_battery_status_check=now
    local power=Device:getPowerDevice()
@@ -426,7 +431,10 @@ function Home:init()
    self.standby_triggered=false
    self:scheduleCasaStandby()
   end
-  UIManager:scheduleIn(0.5,self.upload_tick)
+  -- Poll fast while requests are coming in, so a page with many images is served in seconds, not minutes.
+  local pending=(self.photo_server and self.photo_server.clients and #self.photo_server.clients or 0)+(self.kitchen_server and self.kitchen_server.clients and #self.kitchen_server.clients or 0)
+  local busy=self.state.server_enabled and (pending>0 or os.time()-request_activity<3)
+  UIManager:scheduleIn(busy and 0.03 or 0.5,self.upload_tick)
  end
  self.clock_tick=function()
   if self.closed or not self.state.clock_seconds_enabled then return end

@@ -739,7 +739,9 @@ html,body{width:100%}body{display:flex;align-items:flex-start;justify-content:ce
 .photo-grid::before,.photo-grid::after{content:"";flex:1 0 0;min-width:0}
 </style>
 <style>
-.wifi-card .interval-head{align-items:center}.wifi-pill{padding:3px 10px;border-radius:999px;background:var(--sage);color:var(--green-dark);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}.wifi-pill[data-kind="off"]{background:#f6e7e4;color:#9a392c}.wifi-card .save-setting{width:100%}.wifi-card{margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+.wifi-card .interval-head{align-items:center}.wifi-pill{padding:3px 10px;border-radius:999px;background:var(--sage);color:var(--green-dark);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}.wifi-pill[data-kind="off"]{background:#f6e7e4;color:#9a392c}.wifi-card .save-setting{width:100%}
+@media(min-width:760px){#gallery-page .photo-editor{grid-template-columns:min(62vh,560px,calc(100% - 420px)) minmax(300px,380px)!important;justify-content:center!important;column-gap:40px!important;align-items:center!important}#gallery-page .photo-editor-preview{width:100%!important;justify-self:center!important;margin:0 auto!important}#gallery-page .photo-editor-name{justify-self:center;text-align:center}#gallery-page .photo-tools{align-self:center}}
+#gallery-page .photo-editor-name{text-align:center}.wifi-card{margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)}
 .modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}.modal[hidden]{display:none}.modal-backdrop{position:absolute;inset:0;background:rgba(18,38,50,.45)}
 .modal-panel{position:relative;display:flex;flex-direction:column;width:100%;max-width:560px;max-height:min(92vh,760px);border-radius:18px 18px 0 0;background:var(--surface);color:var(--ink);box-shadow:0 -10px 40px rgba(18,38,50,.25)}
 @media(min-width:620px){.modal{align-items:center;padding:24px}.modal-panel{border-radius:18px}}
@@ -939,10 +941,12 @@ end
 function Server:poll()
  if not self.listener then return end
  pcall(Wifi.step)
- local client = self.listener:accept()
- if client then
-  self.last_activity=os.time()
-  client:settimeout(0);self.clients[#self.clients+1]={socket=client,buffer="",started=os.time()}
+ -- Accept every waiting connection: the browser opens several at once (gallery thumbnails).
+ for _=1,16 do
+  local client = self.listener:accept()
+  if not client then break end
+   self.last_activity=os.time()
+   client:settimeout(0);self.clients[#self.clients+1]={socket=client,buffer="",started=os.time()}
  end
  for i=#self.clients,1,-1 do
   local item=self.clients[i]

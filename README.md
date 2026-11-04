@@ -75,6 +75,7 @@ Commands are available in English and Italian:
 | `tools/kindle restart-home` | `tools/kindle riavvia-casa` | Restarts only Casa (within 10 seconds). |
 | `tools/kindle update` | `tools/kindle aggiorna` | Sends Casa to the Kindle and restarts it. |
 | `tools/kindle status` | `tools/kindle stato` | Shows Wi‑Fi state, battery, uptime and free space. |
+| `tools/kindle server` | `tools/kindle server` | Turns on the Config server (5-minute mode) without using the Kindle menu. |
 | `tools/kindle log` | `tools/kindle log` | Shows the KOReader log and the Wi‑Fi diagnosis. |
 | `tools/kindle shell [CMD]` | `tools/kindle shell [CMD]` | Opens a shell on the Kindle, or runs a single command. |
 | `tools/kindle send FILE [FOLDER]` | `tools/kindle invia FILE [CARTELLA]` | Copies a file to the Kindle. |

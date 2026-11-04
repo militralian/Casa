@@ -1,6 +1,6 @@
 #!/bin/sh
 # Comandi Mac -> Kindle via Wi-Fi.  Uso: tools/kindle [riavvia|riavvia-casa|aggiorna|stato|log|shell [CMD]|invia FILE [CARTELLA]|scarica PERCORSO]
-# English: reboot | restart-home | update | status | log | shell [CMD] | send FILE [FOLDER] | fetch PATH
+# English: reboot | restart-home | update | status | server | log | shell [CMD] | send FILE [FOLDER] | fetch PATH
 # Indirizzo: variabile KINDLE_IP, altrimenti wifi-device-url.txt nella radice del repository.
 # Chiave SSH: chiavi/kindle_casa (creala con tools/crea-chiave; non va mai nel repository).
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,6 +30,7 @@ case "$1" in
   printf 'put -r "%s" /mnt/us/koreader/plugins\n' "$ROOT/casa.koplugin" | sftp -q -b - $OPT -P 2222 root@"$IP" >/dev/null \
    && k 'touch /tmp/casa-restart' && echo "Casa aggiornata: si riavvia entro 10 secondi." ;;
  shell) shift; k "$@" ;;
+ server) k 'touch /tmp/casa-server-on' && echo "Server Config acceso entro 10 secondi: http://$IP:8765" ;;
  log) k 'tail -40 /mnt/us/koreader/crash.log; echo; cat /mnt/us/casa/wifi-diag.log' ;;
  stato|status) k 'echo "Wi-Fi: $(lipc-get-prop com.lab126.wifid cmState)"; echo "Batteria: $(cat /sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity)"; uptime; df -h /mnt/us | tail -1' ;;
  invia|send) [ -n "$2" ] || { echo "Uso: tools/kindle invia FILE [cartella sul Kindle, es. /mnt/us/documents]"; exit 1; }
