@@ -94,6 +94,12 @@ The USB drive shares the storage where KOReader and Casa live, so Casa cannot st
 
 ## Wi‑Fi on the Kindle 4
 
-On firmware 4.x, KOReader cannot scan for or save networks. You can add networks from the web configurator (**Add a Wi‑Fi network**) or from the Kindle's own screen (Menu → Settings → Wi‑Fi Networks), which you reach through **USB mode**.
+On firmware 4.x KOReader cannot scan for or save networks, so Casa talks to the Kindle's own Wi‑Fi service directly. In the web configurator, **Manage Wi‑Fi networks** opens a window with:
+
+- **Current connection**: network name, signal, IP address and **Disconnect**.
+- **Available networks**: a scan runs when the window opens; **Scan** repeats it. Pick a new network, type its password and press **Test connection**. **Save network** unlocks only after a successful test.
+- **Saved networks**: every network stored on the Kindle, with **Connect**, **Disconnect** and **Forget**. Saved passwords are never sent to the page.
+
+During a test the Kindle joins the new network for a few seconds and then returns to the current one, so the phone can read the result. A failed test leaves the saved networks unchanged. Switching to or disconnecting from a network the phone is not on makes the page lose the Kindle; the page warns before doing it.
 
 At startup, and from Menu → **Turn Wi‑Fi back on**, Casa turns off airplane mode, switches Wi‑Fi back on and saves a diagnosis to `casa/wifi-diag.log`. Casa also asks the Kindle's Wi‑Fi service for the connection state directly, so KOReader does not switch off a working connection.
